@@ -2,7 +2,7 @@
 
 This is my iSH setup script for Alpine on iPhone.
 
-It sets up the stuff I actually use, gets `rabbit` configured, fixes up SSH in both directions, and puts Zsh, Oh My Zsh, and Zinit in place without adding a bunch of extra theme junk.
+It sets up the stuff I actually use, gets `rabbit` configured, fixes SSH in both directions, and puts Zsh, Oh My Zsh, and Zinit in place without adding a bunch of extra theme junk.
 
 ## What it does
 
@@ -13,6 +13,8 @@ It sets up the stuff I actually use, gets `rabbit` configured, fixes up SSH in b
 - sets up `sudo` and `doas`
 - configures the iSH SSH server in `/etc/ssh/sshd_config`
 - writes SSH client aliases in `~/.ssh/config`
+- writes a separate `.aliases` file and sources it from `.zshrc`
+- installs OpenRC and adds `sshd` where that makes sense
 - writes persistent hostname config for iSH
 
 ## Run it
