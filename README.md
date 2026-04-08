@@ -72,13 +72,10 @@ It is intended to be run as **root** on Alpine inside iSH.
 
 ---
 
-## Important iSH behavior
+## Run it
 
-iSH has some constraints that affect normal Alpine/Linux behavior.
-
-### Hostname limitation
-
-On iSH, this often fails:
+Run it as root in iSH:
 
 ```sh
-hostname iOSiSH
+su - root
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh)"
