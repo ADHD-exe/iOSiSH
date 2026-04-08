@@ -861,6 +861,6 @@ main() {
     say "  5. Linux does not have true universal global proxying and some apps need separate proxy configuration."
 
     post_run_self_test
-} in
+} 
 
 main "$@"
