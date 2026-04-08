@@ -21,256 +21,254 @@ warn() { printf '[WARN] %s\n' "$*"; }
 err() { printf '[ERR ] %s\n' "$*" >&2; }
 
 append_csv() {
-  if [ -n "${1:-}" ]; then
-    printf '%s, %s' "$1" "$2"
-  else
-    printf '%s' "$2"
-  fi
+    if [ -n "${1:-}" ]; then
+        printf '%s, %s' "$1" "$2"
+    else
+        printf '%s' "$2"
+    fi
 }
 
 cmd_exists() {
-  command -v "$1" >/dev/null 2>&1
+    command -v "$1" >/dev/null 2>&1
 }
 
 pkg_installed() {
-  apk info -e "$1" >/dev/null 2>&1
+    apk info -e "$1" >/dev/null 2>&1
 }
 
 pkg_exists() {
-  apk search -x "$1" >/dev/null 2>&1
+    apk search -x "$1" >/dev/null 2>&1
 }
 
 install_pkg_alias() {
-  label="$1"
-  shift
-  chosen=""
+    label="$1"
+    shift
 
-  for p in "$@"; do
-    if pkg_installed "$p"; then
-      chosen="$p"
-      break
-    fi
-  done
-
-  if [ -z "$chosen" ]; then
     for p in "$@"; do
-      if pkg_exists "$p"; then
-        chosen="$p"
-        break
-      fi
+        if pkg_installed "$p"; then
+            info "$label: already installed as $p"
+            INSTALLED_PKGS=$(append_csv "$INSTALLED_PKGS" "$label ($p)")
+            return 0
+        fi
     done
-  fi
 
-  if [ -n "$chosen" ]; then
-    if pkg_installed "$chosen"; then
-      info "$label: already installed as $chosen"
+    tried_any=0
+    for p in "$@"; do
+        if pkg_exists "$p"; then
+            tried_any=1
+            info "$label: installing $p"
+            if apk add --no-cache "$p" >/dev/null 2>&1; then
+                ok "$label: installed $p"
+                INSTALLED_PKGS=$(append_csv "$INSTALLED_PKGS" "$label ($p)")
+                return 0
+            else
+                warn "$label: failed to install $p"
+            fi
+        fi
+    done
+
+    if [ "$tried_any" -eq 1 ]; then
+        warn "$label: all candidate packages failed, skipping"
     else
-      info "$label: installing $chosen"
-      if apk add --no-cache "$chosen" >/dev/null 2>&1; then
-        ok "$label: installed $chosen"
-      else
-        warn "$label: failed to install $chosen"
-        SKIPPED_PKGS=$(append_csv "$SKIPPED_PKGS" "$label")
-        return 0
-      fi
+        warn "$label: not found in Alpine repositories, skipping"
     fi
-    INSTALLED_PKGS=$(append_csv "$INSTALLED_PKGS" "$label ($chosen)")
-  else
-    warn "$label: not found in Alpine repositories, skipping"
     SKIPPED_PKGS=$(append_csv "$SKIPPED_PKGS" "$label")
-  fi
+    return 0
 }
 
 require_root() {
-  if [ "$(id -u)" != "0" ]; then
-    err "Run this script as root."
-    exit 1
-  fi
+    if [ "$(id -u)" != "0" ]; then
+        err "Run this script as root."
+        exit 1
+    fi
 }
 
 ensure_group_exists() {
-  grp="$1"
-  if grep -q "^${grp}:" /etc/group 2>/dev/null; then
-    return 0
-  fi
-  if addgroup "$grp" >/dev/null 2>&1; then
-    ok "Created group: $grp"
-  else
-    warn "Could not create group: $grp"
-  fi
+    grp="$1"
+    if grep -q "^${grp}:" /etc/group 2>/dev/null; then
+        return 0
+    fi
+    if addgroup "$grp" >/dev/null 2>&1; then
+        ok "Created group: $grp"
+    else
+        warn "Could not create group: $grp"
+    fi
 }
 
 ensure_user() {
-  if id "$RABBIT_USER" >/dev/null 2>&1; then
-    ok "User $RABBIT_USER already exists"
-  else
-    info "Creating user $RABBIT_USER"
-    if adduser -D -h "/home/$RABBIT_USER" "$RABBIT_USER" >/dev/null 2>&1; then
-      ok "Created user $RABBIT_USER"
+    if id "$RABBIT_USER" >/dev/null 2>&1; then
+        ok "User $RABBIT_USER already exists"
     else
-      err "Failed to create user $RABBIT_USER"
-      exit 1
+        info "Creating user $RABBIT_USER"
+        if adduser -D -h "/home/$RABBIT_USER" "$RABBIT_USER" >/dev/null 2>&1; then
+            ok "Created user $RABBIT_USER"
+        else
+            err "Failed to create user $RABBIT_USER"
+            exit 1
+        fi
     fi
-  fi
 
-  if [ ! -d "/home/$RABBIT_USER" ]; then
-    mkdir -p "/home/$RABBIT_USER"
-    ok "Created /home/$RABBIT_USER"
-  fi
+    if [ ! -d "/home/$RABBIT_USER" ]; then
+        mkdir -p "/home/$RABBIT_USER"
+        ok "Created /home/$RABBIT_USER"
+    fi
 
-  chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER" 2>/dev/null || true
+    chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER" 2>/dev/null || true
 
-  ensure_group_exists wheel
+    ensure_group_exists wheel
 
-  if addgroup "$RABBIT_USER" wheel >/dev/null 2>&1; then
-    ok "Ensured $RABBIT_USER is in wheel"
-  else
-    info "$RABBIT_USER may already be in wheel"
-  fi
-
-  if grep -q '^root:' /etc/group 2>/dev/null; then
-    if adduser "$RABBIT_USER" root >/dev/null 2>&1; then
-      ok "Ensured $RABBIT_USER is in root group"
+    if addgroup "$RABBIT_USER" wheel >/dev/null 2>&1; then
+        ok "Ensured $RABBIT_USER is in wheel"
     else
-      info "$RABBIT_USER may already be in root group"
+        info "$RABBIT_USER may already be in wheel"
     fi
-  else
-    warn "Group root does not exist; skipping root-group membership"
-  fi
+
+    if grep -q '^root:' /etc/group 2>/dev/null; then
+        if adduser "$RABBIT_USER" root >/dev/null 2>&1; then
+            ok "Ensured $RABBIT_USER is in root group"
+        else
+            info "$RABBIT_USER may already be in root group"
+        fi
+    else
+        warn "Group root does not exist; skipping root-group membership"
+    fi
 }
 
 set_passwords() {
-  if cmd_exists chpasswd; then
-    if printf 'root:%s\n%s:%s\n' "$ROOT_PASSWORD" "$RABBIT_USER" "$RABBIT_PASSWORD" | chpasswd >/dev/null 2>&1; then
-      ok "Set passwords for root and $RABBIT_USER"
+    if cmd_exists chpasswd; then
+        if printf 'root:%s\n%s:%s\n' "$ROOT_PASSWORD" "$RABBIT_USER" "$RABBIT_PASSWORD" | chpasswd >/dev/null 2>&1; then
+            ok "Set passwords for root and $RABBIT_USER"
+        else
+            warn "Failed to set passwords with chpasswd"
+        fi
     else
-      warn "Failed to set passwords with chpasswd"
+        warn "chpasswd not found; passwords were not set automatically"
     fi
-  else
-    warn "chpasswd not found; passwords were not set automatically"
-  fi
-}
-
-set_hostname_live() {
-  if hostname "$HOSTNAME_WANTED" >/dev/null 2>&1; then
-    ok "Set live hostname to $HOSTNAME_WANTED"
-  else
-    warn "Could not set live hostname"
-  fi
 }
 
 set_hostname_persistent() {
-  printf '%s\n' "$HOSTNAME_WANTED" >/etc/hostname
-  ok "Wrote /etc/hostname"
+    printf '%s\n' "$HOSTNAME_WANTED" > /etc/hostname
+    ok "Wrote /etc/hostname"
 
-  if [ ! -f /etc/hosts ]; then
-    printf '127.0.0.1\tlocalhost %s\n' "$HOSTNAME_WANTED" >/etc/hosts
-    ok "Created /etc/hosts"
-    return 0
-  fi
+    if [ ! -f /etc/hosts ]; then
+        printf '127.0.0.1\tlocalhost %s\n' "$HOSTNAME_WANTED" > /etc/hosts
+        ok "Created /etc/hosts"
+        return 0
+    fi
 
-  if grep -q "[[:space:]]$HOSTNAME_WANTED\$" /etc/hosts 2>/dev/null; then
-    ok "/etc/hosts already contains $HOSTNAME_WANTED"
-  else
-    printf '127.0.0.1\tlocalhost %s\n' "$HOSTNAME_WANTED" >>/etc/hosts
-    ok "Updated /etc/hosts"
-  fi
+    if grep -q "[[:space:]]$HOSTNAME_WANTED\$" /etc/hosts 2>/dev/null; then
+        ok "/etc/hosts already contains $HOSTNAME_WANTED"
+    else
+        printf '127.0.0.1\tlocalhost %s\n' "$HOSTNAME_WANTED" >> /etc/hosts
+        ok "Updated /etc/hosts"
+    fi
+
+    info "iSH may keep the live hostname as localhost; prompt will use /etc/hostname"
 }
 
 set_shell_in_passwd() {
-  usr="$1"
-  newshell="$2"
+    usr="$1"
+    newshell="$2"
 
-  if ! grep -q "^${usr}:" /etc/passwd 2>/dev/null; then
-    warn "User $usr not found in /etc/passwd"
-    return 0
-  fi
+    if ! grep -q "^${usr}:" /etc/passwd 2>/dev/null; then
+        warn "User $usr not found in /etc/passwd"
+        return 0
+    fi
 
-  current_shell="$(awk -F: -v u="$usr" '$1==u {print $7}' /etc/passwd 2>/dev/null)"
-  if [ "$current_shell" = "$newshell" ]; then
-    ok "Login shell for $usr already $newshell"
-    return 0
-  fi
+    current_shell="$(awk -F: -v u="$usr" '$1==u {print $7}' /etc/passwd 2>/dev/null)"
+    if [ "$current_shell" = "$newshell" ]; then
+        ok "Login shell for $usr already $newshell"
+        return 0
+    fi
 
-  tmpf="/tmp/passwd.$$"
-  if awk -F: -v OFS=: -v u="$usr" -v s="$newshell" '
+    tmpf="/tmp/passwd.$$"
+    if awk -F: -v OFS=: -v u="$usr" -v s="$newshell" '
         $1==u { $7=s }
         { print }
-    ' /etc/passwd >"$tmpf"; then
-    cat "$tmpf" >/etc/passwd
-    rm -f "$tmpf"
-    ok "Set login shell for $usr to $newshell"
-  else
-    rm -f "$tmpf"
-    warn "Failed to update login shell for $usr"
-  fi
+    ' /etc/passwd > "$tmpf"; then
+        cat "$tmpf" > /etc/passwd
+        rm -f "$tmpf"
+        ok "Set login shell for $usr to $newshell"
+    else
+        rm -f "$tmpf"
+        warn "Failed to update login shell for $usr"
+    fi
 }
 
 write_profiles() {
-  printf '%s\n' 'exec su - rabbit' >/root/.profile
-  chmod 644 /root/.profile
-  ok "Wrote /root/.profile"
+    printf '%s\n' 'exec su - rabbit' > /root/.profile
+    chmod 644 /root/.profile
+    ok "Wrote /root/.profile"
 
-  printf '%s\n' 'exec zsh -l' >"/home/$RABBIT_USER/.profile"
-  chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER/.profile" 2>/dev/null || true
-  chmod 644 "/home/$RABBIT_USER/.profile"
-  ok "Wrote /home/$RABBIT_USER/.profile"
+    printf '%s\n' 'exec zsh -l' > "/home/$RABBIT_USER/.profile"
+    chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER/.profile" 2>/dev/null || true
+    chmod 644 "/home/$RABBIT_USER/.profile"
+    ok "Wrote /home/$RABBIT_USER/.profile"
 }
 
 clone_or_update_repo() {
-  repo="$1"
-  dest="$2"
-  label="$3"
+    repo="$1"
+    dest="$2"
+    label="$3"
 
-  parent="$(dirname "$dest")"
-  [ -d "$parent" ] || mkdir -p "$parent"
+    parent="$(dirname "$dest")"
+    [ -d "$parent" ] || mkdir -p "$parent"
 
-  if [ -d "$dest/.git" ]; then
-    ok "$label already present"
-    return 0
-  fi
+    if [ -d "$dest/.git" ]; then
+        ok "$label already present"
+        return 0
+    fi
 
-  if ! cmd_exists git; then
-    warn "git missing; cannot install $label"
-    return 1
-  fi
+    if ! cmd_exists git; then
+        warn "git missing; cannot install $label"
+        return 1
+    fi
 
-  if git clone --depth=1 "$repo" "$dest" >/dev/null 2>&1; then
-    ok "Installed $label"
-    return 0
-  else
-    warn "Failed to install $label"
-    return 1
-  fi
+    if git clone --depth=1 "$repo" "$dest" >/dev/null 2>&1; then
+        ok "Installed $label"
+        return 0
+    else
+        warn "Failed to install $label"
+        return 1
+    fi
 }
 
 install_shell_frameworks() {
-  home_dir="$1"
-  owner_user="$2"
+    home_dir="$1"
+    owner_user="$2"
 
-  omz_dir="$home_dir/.oh-my-zsh"
-  zinit_dir="$home_dir/.local/share/zinit/zinit.git"
+    omz_dir="$home_dir/.oh-my-zsh"
+    zinit_dir="$home_dir/.local/share/zinit/zinit.git"
 
-  clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" \
-    "$omz_dir" "Oh My Zsh for $owner_user" || true
+    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" \
+        "$omz_dir" "Oh My Zsh for $owner_user" || true
 
-  clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" \
-    "$zinit_dir" "Zinit for $owner_user" || true
+    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" \
+        "$zinit_dir" "Zinit for $owner_user" || true
 
-  mkdir -p "$home_dir/.cache/zsh"
-  rm -f "$home_dir"/.zcompdump* "$home_dir"/.zcompdump*.zwc 2>/dev/null || true
+    mkdir -p "$home_dir/.cache/zsh" "$home_dir/.local/share" "$home_dir/.ssh"
+    rm -f "$home_dir"/.zcompdump* 2>/dev/null || true
 
-  chown -R "$owner_user:$owner_user" "$home_dir/.oh-my-zsh" "$home_dir/.local" "$home_dir/.cache" 2>/dev/null || true
+    chown -R "$owner_user:$owner_user" "$home_dir/.oh-my-zsh" "$home_dir/.local" "$home_dir/.cache" "$home_dir/.ssh" 2>/dev/null || true
+    chmod 700 "$home_dir/.ssh" 2>/dev/null || true
 }
 
 write_zshrc() {
-  home_dir="$1"
-  owner_user="$2"
-  zshrc="$home_dir/.zshrc"
+    home_dir="$1"
+    owner_user="$2"
+    zshrc="$home_dir/.zshrc"
 
-  cat >"$zshrc" <<'EOF'
+    cat > "$zshrc" <<'EOF'
 # Generated by Alpine/iSH setup script
 # Zinit-based, iSH-friendly, no Nerd Font dependencies
+
+CURRENT_USER="${USER:-$(id -un 2>/dev/null)}"
+CURRENT_HOME="$(awk -F: -v u="$CURRENT_USER" '$1==u {print $6}' /etc/passwd 2>/dev/null)"
+
+if [ -n "$CURRENT_HOME" ] && [ "$HOME" != "$CURRENT_HOME" ]; then
+    export HOME="$CURRENT_HOME"
+    cd "$HOME" 2>/dev/null || true
+fi
 
 export LANG="${LANG:-C.UTF-8}"
 export EDITOR="${EDITOR:-nvim}"
@@ -296,13 +294,16 @@ setopt EXTENDED_GLOB
 setopt COMPLETE_IN_WORD
 setopt ALWAYS_TO_END
 setopt PROMPT_SUBST
+setopt NULL_GLOB
+
+mkdir -p "$HOME/.cache/zsh" "$HOME/.local/share" "$HOME/.ssh"
 
 autoload -Uz compinit
-mkdir -p "$HOME/.cache/zsh"
-rm -f "$HOME"/.zcompdump*.zwc 2>/dev/null
-compinit -d "$HOME/.cache/zsh/zcompdump-$HOST"
+rm -f "$HOME"/.zcompdump*
+compinit -d "$HOME/.cache/zsh/zcompdump-$CURRENT_USER"
 
-PROMPT='%F{cyan}%n@%m%f:%F{yellow}%~%f %# '
+HOST_DISPLAY="$(cat /etc/hostname 2>/dev/null || echo localhost)"
+PROMPT='%F{cyan}%n@'"$HOST_DISPLAY"'%f:%F{yellow}%~%f %# '
 RPROMPT='%(?..%F{red}[%?]%f)'
 
 if command -v eza >/dev/null 2>&1; then
@@ -364,9 +365,6 @@ if [ -r "$ZINIT_HOME/zinit.zsh" ]; then
         zinit ice lucid wait'0'
         zinit light zsh-users/zsh-syntax-highlighting
     fi
-
-    zinit ice lucid wait'0'
-    zinit light marlonrichert/zsh-autocomplete
 fi
 
 zstyle ':completion:*' menu select
@@ -382,53 +380,53 @@ bindkey -e
 umask 022
 EOF
 
-  chown "$owner_user:$owner_user" "$zshrc" 2>/dev/null || true
-  chmod 644 "$zshrc"
-  ok "Wrote $zshrc"
+    chown "$owner_user:$owner_user" "$zshrc" 2>/dev/null || true
+    chmod 644 "$zshrc"
+    ok "Wrote $zshrc"
 }
 
 configure_sudo() {
-  mkdir -p /etc/sudoers.d
-
-  if [ ! -f /etc/sudoers.d/wheel ]; then
-    printf '%%wheel ALL=(ALL) ALL\n' >/etc/sudoers.d/wheel
-    chmod 440 /etc/sudoers.d/wheel
-    ok "Configured sudo for wheel group"
-  else
+    mkdir -p /etc/sudoers.d
+    printf '%%wheel ALL=(ALL) ALL\n' > /etc/sudoers.d/wheel
     chmod 440 /etc/sudoers.d/wheel 2>/dev/null || true
-    ok "sudo wheel policy already present"
-  fi
+    ok "Configured sudo for wheel group"
+}
+
+configure_doas() {
+    printf 'permit persist rabbit as root\n' > /etc/doas.conf
+    chmod 0400 /etc/doas.conf 2>/dev/null || true
+    ok "Configured doas for rabbit"
 }
 
 generate_host_keys_if_needed() {
-  if [ -f /etc/ssh/ssh_host_rsa_key ] ||
-    [ -f /etc/ssh/ssh_host_ed25519_key ] ||
-    [ -f /etc/ssh/ssh_host_ecdsa_key ]; then
-    ok "SSH host keys already exist"
-    return 0
-  fi
-
-  if cmd_exists ssh-keygen; then
-    info "Generating SSH host keys"
-    if ssh-keygen -A >/dev/null 2>&1; then
-      ok "Generated SSH host keys"
-    else
-      warn "Failed to generate SSH host keys"
+    if [ -f /etc/ssh/ssh_host_rsa_key ] || \
+       [ -f /etc/ssh/ssh_host_ed25519_key ] || \
+       [ -f /etc/ssh/ssh_host_ecdsa_key ]; then
+        ok "SSH host keys already exist"
+        return 0
     fi
-  else
-    warn "ssh-keygen not found; cannot generate SSH host keys"
-  fi
+
+    if cmd_exists ssh-keygen; then
+        info "Generating SSH host keys"
+        if ssh-keygen -A >/dev/null 2>&1; then
+            ok "Generated SSH host keys"
+        else
+            warn "Failed to generate SSH host keys"
+        fi
+    else
+        warn "ssh-keygen not found; cannot generate SSH host keys"
+    fi
 }
 
 ensure_sshd_config_key() {
-  key="$1"
-  value="$2"
-  cfg="/etc/ssh/sshd_config"
+    key="$1"
+    value="$2"
+    cfg="/etc/ssh/sshd_config"
 
-  [ -f "$cfg" ] || touch "$cfg"
+    [ -f "$cfg" ] || touch "$cfg"
 
-  tmpf="/tmp/sshd_config.$$"
-  awk -v k="$key" -v v="$value" '
+    tmpf="/tmp/sshd_config.$$"
+    awk -v k="$key" -v v="$value" '
         BEGIN { done=0 }
         {
             if ($0 ~ "^[#[:space:]]*" k "[[:space:]]") {
@@ -443,160 +441,177 @@ ensure_sshd_config_key() {
         END {
             if (!done) print k " " v
         }
-    ' "$cfg" >"$tmpf" && cat "$tmpf" >"$cfg"
-  rm -f "$tmpf"
+    ' "$cfg" > "$tmpf" && cat "$tmpf" > "$cfg"
+    rm -f "$tmpf"
 
-  ok "Ensured sshd_config: $key $value"
+    ok "Ensured sshd_config: $key $value"
 }
 
 start_sshd_safely() {
-  mkdir -p /etc/ssh /run/sshd /var/run/sshd
+    mkdir -p /etc/ssh /run/sshd /var/run/sshd
 
-  if ! cmd_exists sshd; then
-    warn "sshd not found; SSH server cannot start"
-    return 0
-  fi
+    if ! cmd_exists sshd; then
+        warn "sshd not found; SSH server cannot start"
+        return 0
+    fi
 
-  if ! sshd -t >/dev/null 2>&1; then
-    warn "sshd configuration test failed; not starting sshd"
-    return 0
-  fi
+    if ! sshd -t >/dev/null 2>&1; then
+        warn "sshd configuration test failed; not starting sshd"
+        return 0
+    fi
 
-  if ps 2>/dev/null | grep '[s]shd' >/dev/null 2>&1; then
-    ok "sshd already appears to be running"
-    return 0
-  fi
+    if ps 2>/dev/null | grep '[s]shd' >/dev/null 2>&1; then
+        ok "sshd already appears to be running"
+        return 0
+    fi
 
-  if /usr/sbin/sshd >/dev/null 2>&1 || sshd >/dev/null 2>&1; then
-    ok "Started sshd"
-  else
-    warn "Could not start sshd automatically"
-  fi
+    if /usr/sbin/sshd >/dev/null 2>&1 || sshd >/dev/null 2>&1; then
+        ok "Started sshd"
+    else
+        warn "Could not start sshd automatically"
+    fi
 }
 
 main() {
-  require_root
+    require_root
 
-  info "Updating apk indexes"
-  if apk update >/dev/null 2>&1; then
-    ok "apk indexes updated"
-  else
-    warn "apk update failed; continuing anyway"
-  fi
+    info "Updating apk indexes"
+    if apk update >/dev/null 2>&1; then
+        ok "apk indexes updated"
+    else
+        warn "apk update failed; continuing anyway"
+    fi
 
-  info "Installing requested packages"
+    info "Installing requested packages"
 
-  install_pkg_alias "git" git
-  install_pkg_alias "curl" curl
-  install_pkg_alias "bat" bat
-  install_pkg_alias "fzf" fzf
-  install_pkg_alias "nano" nano
-  install_pkg_alias "neovim" neovim
-  install_pkg_alias "neofetch" neofetch
-  install_pkg_alias "OpenSSH server" openssh-server openssh
-  install_pkg_alias "OpenSSH client" openssh-client-default openssh-client openssh
-  install_pkg_alias "ncurses" ncurses
-  install_pkg_alias "less" less
-  install_pkg_alias "zoxide" zoxide
-  install_pkg_alias "tmux" tmux
-  install_pkg_alias "htop" htop
-  install_pkg_alias "ripgrep" ripgrep
-  install_pkg_alias "fd" fd
-  install_pkg_alias "lazygit" lazygit
-  install_pkg_alias "tree" tree
-  install_pkg_alias "unzip" unzip
-  install_pkg_alias "zip" zip
-  install_pkg_alias "wget" wget
-  install_pkg_alias "grep" grep
-  install_pkg_alias "sed" sed
-  install_pkg_alias "coreutils" coreutils
-  install_pkg_alias "util-linux" util-linux
-  install_pkg_alias "linux headers/tools" linux-headers linux-lts-headers linux-edge-headers
-  install_pkg_alias "diffutils" diffutils
-  install_pkg_alias "findutils" findutils
-  install_pkg_alias "file" file
-  install_pkg_alias "patch" patch
-  install_pkg_alias "bash" bash
-  install_pkg_alias "zsh" zsh
-  install_pkg_alias "sudo" sudo
-  install_pkg_alias "eza/exa" eza exa
+    install_pkg_alias "git" git
+    install_pkg_alias "curl" curl
+    install_pkg_alias "wget" wget
+    install_pkg_alias "bat" bat
+    install_pkg_alias "fzf" fzf
+    install_pkg_alias "nano" nano
+    install_pkg_alias "neovim" neovim
+    install_pkg_alias "neofetch" neofetch
+    install_pkg_alias "OpenSSH server" openssh-server openssh
+    install_pkg_alias "OpenSSH client" openssh-client-default openssh-client openssh
+    install_pkg_alias "ncurses" ncurses
+    install_pkg_alias "less" less
+    install_pkg_alias "zoxide" zoxide
+    install_pkg_alias "tmux" tmux
+    install_pkg_alias "htop" htop
+    install_pkg_alias "ripgrep" ripgrep
+    install_pkg_alias "fd" fd
+    install_pkg_alias "lazygit" lazygit
+    install_pkg_alias "tree" tree
+    install_pkg_alias "unzip" unzip
+    install_pkg_alias "zip" zip
+    install_pkg_alias "grep" grep
+    install_pkg_alias "sed" sed
+    install_pkg_alias "coreutils" coreutils
+    install_pkg_alias "util-linux" util-linux
+    install_pkg_alias "linux headers/tools" linux-headers linux-lts-headers linux-edge-headers
+    install_pkg_alias "diffutils" diffutils
+    install_pkg_alias "findutils" findutils
+    install_pkg_alias "file" file
+    install_pkg_alias "patch" patch
+    install_pkg_alias "bash" bash
+    install_pkg_alias "zsh" zsh
+    install_pkg_alias "sudo" sudo
+    install_pkg_alias "doas" doas
+    install_pkg_alias "shadow" shadow
+    install_pkg_alias "eza/exa" eza exa
 
-  set_hostname_live
-  set_hostname_persistent
+    set_hostname_persistent
+    ensure_user
+    set_passwords
 
-  ensure_user
-  set_passwords
+    if cmd_exists zsh; then
+        set_shell_in_passwd "$RABBIT_USER" "$(command -v zsh)"
+    else
+        warn "zsh not installed; cannot set rabbit shell to zsh"
+    fi
 
-  if cmd_exists zsh; then
-    set_shell_in_passwd "$RABBIT_USER" "$(command -v zsh)"
-  else
-    warn "zsh not installed; cannot set rabbit shell to zsh"
-  fi
+    write_profiles
+    install_shell_frameworks /root root
+    install_shell_frameworks "/home/$RABBIT_USER" "$RABBIT_USER"
+    write_zshrc /root root
+    write_zshrc "/home/$RABBIT_USER" "$RABBIT_USER"
 
-  write_profiles
+    if cmd_exists sudo; then
+        configure_sudo
+    else
+        warn "sudo not installed; skipping sudo configuration"
+    fi
 
-  install_shell_frameworks /root root
-  install_shell_frameworks "/home/$RABBIT_USER" "$RABBIT_USER"
+    if cmd_exists doas; then
+        configure_doas
+    else
+        warn "doas not installed; skipping doas configuration"
+    fi
 
-  write_zshrc /root root
-  write_zshrc "/home/$RABBIT_USER" "$RABBIT_USER"
+    info "Configuring OpenSSH server"
+    mkdir -p /etc/ssh /root/.ssh "/home/$RABBIT_USER/.ssh"
+    chmod 700 /root/.ssh "/home/$RABBIT_USER/.ssh" 2>/dev/null || true
+    chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER/.ssh" 2>/dev/null || true
 
-  if cmd_exists sudo; then
-    configure_sudo
-  else
-    warn "sudo not installed; skipping sudo configuration"
-  fi
+    generate_host_keys_if_needed
+    ensure_sshd_config_key "AllowTcpForwarding" "yes"
+    ensure_sshd_config_key "PermitRootLogin" "yes"
+    ensure_sshd_config_key "PasswordAuthentication" "yes"
+    ensure_sshd_config_key "PubkeyAuthentication" "yes"
+    ensure_sshd_config_key "PermitEmptyPasswords" "no"
+    start_sshd_safely
 
-  info "Configuring OpenSSH server"
-  mkdir -p /etc/ssh
-  generate_host_keys_if_needed
-  ensure_sshd_config_key "AllowTcpForwarding" "yes"
-  ensure_sshd_config_key "PermitRootLogin" "yes"
-  start_sshd_safely
-
-  say
-  say "============================================================"
-  say "Setup complete"
-  say "============================================================"
-  say
-  say "Installed packages:"
-  if [ -n "$INSTALLED_PKGS" ]; then
-    say "  $INSTALLED_PKGS"
-  else
-    say "  (none)"
-  fi
-  say
-  say "Skipped packages:"
-  if [ -n "$SKIPPED_PKGS" ]; then
-    say "  $SKIPPED_PKGS"
-  else
-    say "  (none)"
-  fi
-  say
-  say "Passwords set by script:"
-  say "  root: $ROOT_PASSWORD"
-  say "  $RABBIT_USER: $RABBIT_PASSWORD"
-  say
-  say "rabbit sudo usage:"
-  say "  sudo apk update"
-  say "  sudo apk add jq"
-  say
-  say "Keep-alive command:"
-  say "  cat /dev/location > /dev/null &"
-  say
-  say "Also remember:"
-  say "  - Allow location access in iSH"
-  say "  - Enable keep screen turned on in iSH settings"
-  say
-  say "Linux client connection over iPhone Personal Hotspot:"
-  say "  1. Connect Linux to the iPhone hotspot."
-  say "  2. Find the gateway with:"
-  say "     ip route show default"
-  say "  3. Start the SOCKS proxy tunnel with:"
-  say "     ssh -D 1080 -N -C root@172.20.10.1"
-  say "  4. The terminal appearing to hang is expected."
-  say "  5. Linux does not have true universal global proxying and some apps need separate proxy configuration."
-  say
+    say
+    say "============================================================"
+    say "Setup complete"
+    say "============================================================"
+    say
+    say "Installed packages:"
+    if [ -n "$INSTALLED_PKGS" ]; then
+        say "  $INSTALLED_PKGS"
+    else
+        say "  (none)"
+    fi
+    say
+    say "Skipped packages:"
+    if [ -n "$SKIPPED_PKGS" ]; then
+        say "  $SKIPPED_PKGS"
+    else
+        say "  (none)"
+    fi
+    say
+    say "Passwords set by script:"
+    say "  root: $ROOT_PASSWORD"
+    say "  $RABBIT_USER: $RABBIT_PASSWORD"
+    say
+    say "Privilege escalation:"
+    say "  sudo apk update"
+    say "  doas apk update"
+    say
+    say "SSH config ensured:"
+    say "  AllowTcpForwarding yes"
+    say "  PermitRootLogin yes"
+    say "  PasswordAuthentication yes"
+    say "  PubkeyAuthentication yes"
+    say "  PermitEmptyPasswords no"
+    say
+    say "Keep-alive command:"
+    say "  cat /dev/location > /dev/null &"
+    say
+    say "Also remember:"
+    say "  - Allow location access in iSH"
+    say "  - Enable keep screen turned on in iSH settings"
+    say
+    say "Linux client connection over iPhone Personal Hotspot:"
+    say "  1. Connect Linux to the iPhone hotspot."
+    say "  2. Find the gateway with:"
+    say "     ip route show default"
+    say "  3. Start the SOCKS proxy tunnel with:"
+    say "     ssh -D 1080 -N -C root@172.20.10.1"
+    say "  4. The terminal appearing to hang is expected."
+    say "  5. Linux does not have true universal global proxying and some apps need separate proxy configuration."
+    say
 }
 
 main "$@"
