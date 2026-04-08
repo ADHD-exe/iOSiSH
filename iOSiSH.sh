@@ -8,8 +8,11 @@ set -u
 
 HOSTNAME_WANTED="iphoneish"
 RABBIT_USER="rabbit"
-ROOT_PASSWORD="Dorothy"
-RABBIT_PASSWORD="Dorothy"
+ROOT_PASSWORD="dorothy"
+RABBIT_PASSWORD="dorothy"
+CACHYOS_HOST="172.20.10.7"
+CACHYOS_USER="rabbit"
+CACHYOS_PORT="22"
 
 INSTALLED_PKGS=""
 SKIPPED_PKGS=""
@@ -52,10 +55,10 @@ install_pkg_alias() {
         fi
     done
 
-    tried_any=0
+    found_any=0
     for p in "$@"; do
         if pkg_exists "$p"; then
-            tried_any=1
+            found_any=1
             info "$label: installing $p"
             if apk add --no-cache "$p" >/dev/null 2>&1; then
                 ok "$label: installed $p"
@@ -67,7 +70,7 @@ install_pkg_alias() {
         fi
     done
 
-    if [ "$tried_any" -eq 1 ]; then
+    if [ "$found_any" -eq 1 ]; then
         warn "$label: all candidate packages failed, skipping"
     else
         warn "$label: not found in Alpine repositories, skipping"
@@ -108,11 +111,7 @@ ensure_user() {
         fi
     fi
 
-    if [ ! -d "/home/$RABBIT_USER" ]; then
-        mkdir -p "/home/$RABBIT_USER"
-        ok "Created /home/$RABBIT_USER"
-    fi
-
+    mkdir -p "/home/$RABBIT_USER"
     chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER" 2>/dev/null || true
 
     ensure_group_exists wheel
@@ -129,8 +128,6 @@ ensure_user() {
         else
             info "$RABBIT_USER may already be in root group"
         fi
-    else
-        warn "Group root does not exist; skipping root-group membership"
     fi
 }
 
@@ -163,7 +160,7 @@ set_hostname_persistent() {
         ok "Updated /etc/hosts"
     fi
 
-    info "iSH may keep the live hostname as localhost; prompt will use /etc/hostname"
+    info "iSH may still report localhost internally; prompt will use /etc/hostname"
 }
 
 set_shell_in_passwd() {
@@ -196,7 +193,7 @@ set_shell_in_passwd() {
 }
 
 write_profiles() {
-    printf '%s\n' 'exec su - rabbit' > /root/.profile
+    printf '%s\n' 'exec zsh -l' > /root/.profile
     chmod 644 /root/.profile
     ok "Wrote /root/.profile"
 
@@ -240,17 +237,131 @@ install_shell_frameworks() {
     omz_dir="$home_dir/.oh-my-zsh"
     zinit_dir="$home_dir/.local/share/zinit/zinit.git"
 
-    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" \
-        "$omz_dir" "Oh My Zsh for $owner_user" || true
+    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$omz_dir" "Oh My Zsh for $owner_user" || true
+    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$zinit_dir" "Zinit for $owner_user" || true
 
-    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" \
-        "$zinit_dir" "Zinit for $owner_user" || true
-
-    mkdir -p "$home_dir/.cache/zsh" "$home_dir/.local/share" "$home_dir/.ssh"
+    mkdir -p "$home_dir/.cache/zsh" "$home_dir/.local/share" "$home_dir/.ssh" "$home_dir/.config/zsh"
     rm -f "$home_dir"/.zcompdump* 2>/dev/null || true
 
-    chown -R "$owner_user:$owner_user" "$home_dir/.oh-my-zsh" "$home_dir/.local" "$home_dir/.cache" "$home_dir/.ssh" 2>/dev/null || true
+    chown -R "$owner_user:$owner_user" "$home_dir/.oh-my-zsh" "$home_dir/.local" "$home_dir/.cache" "$home_dir/.ssh" "$home_dir/.config" 2>/dev/null || true
     chmod 700 "$home_dir/.ssh" 2>/dev/null || true
+}
+
+write_aliases() {
+    home_dir="$1"
+    owner_user="$2"
+    alias_dir="$home_dir/.config/zsh"
+    alias_file="$alias_dir/.aliases"
+
+    mkdir -p "$alias_dir"
+
+    cat > "$alias_file" <<'EOF'
+alias -='cd -'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias .....='cd ../../../..'
+alias .3='cd ../../..'
+alias .4='cd ../../../..'
+alias .5='cd ../../../../..'
+
+alias _='sudo '
+alias c='clear'
+alias cls='clear'
+alias h='history'
+alias hl='history | less'
+alias hs='history | grep'
+alias hsi='history | grep -i'
+
+alias edit='nvim'
+alias v='nvim'
+alias vi='nvim'
+alias vim='nvim'
+alias zshrc='nvim ~/.zshrc'
+alias al='nvim ~/.config/zsh/.aliases'
+
+alias md='mkdir -p'
+alias mkdir='mkdir -pv'
+alias cp='cp -iv'
+alias mv='mv -iv'
+alias rm='rm -Iv'
+alias rd='rmdir'
+alias du='du -h'
+alias df='df -h'
+alias free='free -h'
+
+alias grep='grep --color=auto'
+alias egrep='grep -E'
+alias fgrep='grep -F'
+alias diff='diff --color=auto'
+
+alias cat='bat --paging=never --style=plain'
+alias rcat='command cat'
+
+alias g='git'
+alias ga='git add'
+alias gaa='git add --all'
+alias gc='git commit'
+alias gca='git commit --amend'
+alias gco='git checkout'
+alias gcb='git checkout -b'
+alias gd='git diff'
+alias gf='git fetch'
+alias gl='git pull'
+alias gp='git push'
+alias gs='git status'
+alias gst='git status'
+alias glog='git log --oneline --decorate --graph'
+alias gloga='git log --oneline --decorate --graph --all'
+alias gpf='git push --force-with-lease --force-if-includes'
+
+alias rg='rg'
+alias f='fd'
+alias t='tmux'
+alias htop='htop'
+alias lg='lazygit'
+alias tree='tree -C'
+
+alias ipa='ip a'
+alias ipr='ip r'
+alias ip='ip'
+
+alias se='doas rc-update add'
+alias sd='doas rc-update del'
+alias ss='rc-service'
+alias sr='doas rc-service'
+alias fw='doas iptables'
+
+alias please='sudo'
+alias sudo='nocorrect sudo'
+alias su='nocorrect su'
+
+alias apku='doas apk update'
+alias apki='doas apk add'
+alias apkr='doas apk del'
+
+alias sshc='ssh cachyos'
+alias ssht='ssh -N cachyos-tunnel'
+alias rl='exec zsh -l'
+
+if command -v exa >/dev/null 2>&1; then
+    alias ls='exa --group-directories-first'
+    alias l='exa -lh --group-directories-first'
+    alias la='exa -la --group-directories-first'
+    alias ll='exa -lah --group-directories-first --git'
+    alias lt='exa -T --level=2 --group-directories-first'
+else
+    alias ls='ls --color=auto'
+    alias l='ls -lh --color=auto'
+    alias la='ls -la --color=auto'
+    alias ll='ls -lah --color=auto'
+    alias lt='tree -L 2'
+fi
+EOF
+
+    chown -R "$owner_user:$owner_user" "$home_dir/.config" 2>/dev/null || true
+    chmod 644 "$alias_file" 2>/dev/null || true
+    ok "Wrote aliases for $owner_user"
 }
 
 write_zshrc() {
@@ -261,14 +372,6 @@ write_zshrc() {
     cat > "$zshrc" <<'EOF'
 # Generated by Alpine/iSH setup script
 # Zinit-based, iSH-friendly, no Nerd Font dependencies
-
-CURRENT_USER="${USER:-$(id -un 2>/dev/null)}"
-CURRENT_HOME="$(awk -F: -v u="$CURRENT_USER" '$1==u {print $6}' /etc/passwd 2>/dev/null)"
-
-if [ -n "$CURRENT_HOME" ] && [ "$HOME" != "$CURRENT_HOME" ]; then
-    export HOME="$CURRENT_HOME"
-    cd "$HOME" 2>/dev/null || true
-fi
 
 export LANG="${LANG:-C.UTF-8}"
 export EDITOR="${EDITOR:-nvim}"
@@ -296,40 +399,17 @@ setopt ALWAYS_TO_END
 setopt PROMPT_SUBST
 setopt NULL_GLOB
 
-mkdir -p "$HOME/.cache/zsh" "$HOME/.local/share" "$HOME/.ssh"
+mkdir -p "$HOME/.cache/zsh" "$HOME/.local/share" "$HOME/.ssh" "$HOME/.config/zsh"
 
 autoload -Uz compinit
 rm -f "$HOME"/.zcompdump*
-compinit -d "$HOME/.cache/zsh/zcompdump-$CURRENT_USER"
+compinit -d "$HOME/.cache/zsh/zcompdump-$(id -un 2>/dev/null)"
 
 HOST_DISPLAY="$(cat /etc/hostname 2>/dev/null || echo localhost)"
 PROMPT='%F{cyan}%n@'"$HOST_DISPLAY"'%f:%F{yellow}%~%f %# '
 RPROMPT='%(?..%F{red}[%?]%f)'
 
-if command -v eza >/dev/null 2>&1; then
-    alias ls='eza --group-directories-first --icons=never'
-    alias ll='eza -lah --group-directories-first --git --icons=never'
-    alias la='eza -la --group-directories-first --icons=never'
-elif command -v exa >/dev/null 2>&1; then
-    alias ls='exa --group-directories-first'
-    alias ll='exa -lah --group-directories-first --git'
-    alias la='exa -la --group-directories-first'
-else
-    alias ls='ls --color=auto'
-    alias ll='ls -lah --color=auto'
-    alias la='ls -la --color=auto'
-fi
-
-alias grep='grep --color=auto'
-alias diff='diff --color=auto'
-alias cls='clear'
-alias vi='nvim'
-alias vim='nvim'
-alias duh='du -sh ./* 2>/dev/null | sort -h'
-
-if command -v bat >/dev/null 2>&1; then
-    alias cat='bat --paging=never --style=plain'
-fi
+[ -r "$HOME/.config/zsh/.aliases" ] && . "$HOME/.config/zsh/.aliases"
 
 if command -v zoxide >/dev/null 2>&1; then
     eval "$(zoxide init zsh)"
@@ -385,6 +465,68 @@ EOF
     ok "Wrote $zshrc"
 }
 
+write_user_ssh_config() {
+    ssh_home="$1"
+    ssh_user="$2"
+    cfg="$ssh_home/.ssh/config"
+
+    mkdir -p "$ssh_home/.ssh"
+    cat > "$cfg" <<EOF
+Host cachyos
+    HostName $CACHYOS_HOST
+    User $CACHYOS_USER
+    Port $CACHYOS_PORT
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    PreferredAuthentications publickey,password
+    PubkeyAuthentication yes
+    IdentitiesOnly yes
+    IdentityFile $ssh_home/.ssh/id_ed25519
+
+Host cachyos-tunnel
+    HostName $CACHYOS_HOST
+    User $CACHYOS_USER
+    Port $CACHYOS_PORT
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    PreferredAuthentications publickey,password
+    PubkeyAuthentication yes
+    IdentitiesOnly yes
+    IdentityFile $ssh_home/.ssh/id_ed25519
+    DynamicForward 1080
+    Compression yes
+    ExitOnForwardFailure yes
+EOF
+    chmod 600 "$cfg"
+    chown -R "$ssh_user:$ssh_user" "$ssh_home/.ssh" 2>/dev/null || true
+    ok "Wrote SSH client config for $ssh_user"
+}
+
+ensure_ssh_keypair() {
+    ssh_home="$1"
+    ssh_user="$2"
+    key="$ssh_home/.ssh/id_ed25519"
+
+    mkdir -p "$ssh_home/.ssh"
+    if [ ! -f "$key" ]; then
+        if cmd_exists ssh-keygen; then
+            if ssh-keygen -q -t ed25519 -N '' -f "$key" >/dev/null 2>&1; then
+                ok "Generated SSH key for $ssh_user"
+            else
+                warn "Failed to generate SSH key for $ssh_user"
+            fi
+        else
+            warn "ssh-keygen missing; cannot generate SSH key for $ssh_user"
+        fi
+    else
+        ok "SSH key already exists for $ssh_user"
+    fi
+    chmod 700 "$ssh_home/.ssh" 2>/dev/null || true
+    chmod 600 "$key" 2>/dev/null || true
+    chmod 644 "$key.pub" 2>/dev/null || true
+    chown -R "$ssh_user:$ssh_user" "$ssh_home/.ssh" 2>/dev/null || true
+}
+
 configure_sudo() {
     mkdir -p /etc/sudoers.d
     printf '%%wheel ALL=(ALL) ALL\n' > /etc/sudoers.d/wheel
@@ -398,10 +540,37 @@ configure_doas() {
     ok "Configured doas for rabbit"
 }
 
+configure_openrc() {
+    if ! cmd_exists rc-update; then
+        warn "OpenRC not available; skipping OpenRC service setup"
+        return 0
+    fi
+
+    mkdir -p /run/openrc 2>/dev/null || true
+
+    if [ -f /etc/init.d/sshd ]; then
+        if rc-update add sshd default >/dev/null 2>&1; then
+            ok "Added sshd to OpenRC default runlevel"
+        else
+            info "sshd may already be in OpenRC default runlevel"
+        fi
+
+        if rc-service sshd status >/dev/null 2>&1; then
+            ok "OpenRC sees sshd service"
+        else
+            if rc-service sshd start >/dev/null 2>&1; then
+                ok "Started sshd via OpenRC"
+            else
+                warn "OpenRC could not start sshd; falling back to direct sshd start"
+            fi
+        fi
+    else
+        warn "No /etc/init.d/sshd found; skipping OpenRC sshd registration"
+    fi
+}
+
 generate_host_keys_if_needed() {
-    if [ -f /etc/ssh/ssh_host_rsa_key ] || \
-       [ -f /etc/ssh/ssh_host_ed25519_key ] || \
-       [ -f /etc/ssh/ssh_host_ecdsa_key ]; then
+    if [ -f /etc/ssh/ssh_host_rsa_key ] || [ -f /etc/ssh/ssh_host_ed25519_key ] || [ -f /etc/ssh/ssh_host_ecdsa_key ]; then
         ok "SSH host keys already exist"
         return 0
     fi
@@ -443,7 +612,6 @@ ensure_sshd_config_key() {
         }
     ' "$cfg" > "$tmpf" && cat "$tmpf" > "$cfg"
     rm -f "$tmpf"
-
     ok "Ensured sshd_config: $key $value"
 }
 
@@ -466,9 +634,44 @@ start_sshd_safely() {
     fi
 
     if /usr/sbin/sshd >/dev/null 2>&1 || sshd >/dev/null 2>&1; then
-        ok "Started sshd"
+        ok "Started sshd directly"
     else
         warn "Could not start sshd automatically"
+    fi
+}
+
+post_run_self_test() {
+    say
+    say "Post-run self-test:"
+
+    if zsh -lc 'exit 0' >/dev/null 2>&1; then
+        say "  [OK] root zsh startup"
+    else
+        say "  [WARN] root zsh startup"
+    fi
+
+    if su - "$RABBIT_USER" -c 'zsh -lc "exit 0"' >/dev/null 2>&1; then
+        say "  [OK] rabbit zsh startup"
+    else
+        say "  [WARN] rabbit zsh startup"
+    fi
+
+    if ssh -G 127.0.0.1 >/dev/null 2>&1; then
+        say "  [OK] SSH client config parse"
+    else
+        say "  [WARN] SSH client config parse"
+    fi
+
+    if sshd -t >/dev/null 2>&1; then
+        say "  [OK] SSH server config parse"
+    else
+        say "  [WARN] SSH server config parse"
+    fi
+
+    if su - "$RABBIT_USER" -c 'sudo -l' >/dev/null 2>&1; then
+        say "  [OK] sudo check"
+    else
+        say "  [INFO] sudo check may require interactive auth"
     fi
 }
 
@@ -483,7 +686,6 @@ main() {
     fi
 
     info "Installing requested packages"
-
     install_pkg_alias "git" git
     install_pkg_alias "curl" curl
     install_pkg_alias "wget" wget
@@ -519,23 +721,34 @@ main() {
     install_pkg_alias "sudo" sudo
     install_pkg_alias "doas" doas
     install_pkg_alias "shadow" shadow
-    install_pkg_alias "eza/exa" eza exa
+    install_pkg_alias "openrc" openrc
+    install_pkg_alias "iptables-openrc" iptables-openrc
+    install_pkg_alias "util-linux-openrc" util-linux-openrc
+    install_pkg_alias "exa" exa
 
     set_hostname_persistent
     ensure_user
     set_passwords
 
     if cmd_exists zsh; then
+        set_shell_in_passwd root "$(command -v zsh)"
         set_shell_in_passwd "$RABBIT_USER" "$(command -v zsh)"
     else
-        warn "zsh not installed; cannot set rabbit shell to zsh"
+        warn "zsh not installed; cannot set login shells"
     fi
 
     write_profiles
     install_shell_frameworks /root root
     install_shell_frameworks "/home/$RABBIT_USER" "$RABBIT_USER"
+    write_aliases /root root
+    write_aliases "/home/$RABBIT_USER" "$RABBIT_USER"
     write_zshrc /root root
     write_zshrc "/home/$RABBIT_USER" "$RABBIT_USER"
+
+    ensure_ssh_keypair /root root
+    ensure_ssh_keypair "/home/$RABBIT_USER" "$RABBIT_USER"
+    write_user_ssh_config /root root
+    write_user_ssh_config "/home/$RABBIT_USER" "$RABBIT_USER"
 
     if cmd_exists sudo; then
         configure_sudo
@@ -560,6 +773,8 @@ main() {
     ensure_sshd_config_key "PasswordAuthentication" "yes"
     ensure_sshd_config_key "PubkeyAuthentication" "yes"
     ensure_sshd_config_key "PermitEmptyPasswords" "no"
+
+    configure_openrc
     start_sshd_safely
 
     say
@@ -589,12 +804,24 @@ main() {
     say "  sudo apk update"
     say "  doas apk update"
     say
-    say "SSH config ensured:"
+    say "SSH client aliases written to ~/.ssh/config:"
+    say "  ssh cachyos"
+    say "  ssh -N cachyos-tunnel"
+    say
+    say "SSH server config ensured in /etc/ssh/sshd_config:"
     say "  AllowTcpForwarding yes"
     say "  PermitRootLogin yes"
     say "  PasswordAuthentication yes"
     say "  PubkeyAuthentication yes"
     say "  PermitEmptyPasswords no"
+    say
+    say "SSH key locations:"
+    say "  /root/.ssh/id_ed25519.pub"
+    say "  /home/$RABBIT_USER/.ssh/id_ed25519.pub"
+    say
+    say "OpenRC:"
+    say "  sshd will be added where applicable"
+    say "  iSH may still limit full init behavior"
     say
     say "Keep-alive command:"
     say "  cat /dev/location > /dev/null &"
@@ -611,7 +838,8 @@ main() {
     say "     ssh -D 1080 -N -C root@172.20.10.1"
     say "  4. The terminal appearing to hang is expected."
     say "  5. Linux does not have true universal global proxying and some apps need separate proxy configuration."
-    say
+
+    post_run_self_test
 }
 
 main "$@"
