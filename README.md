@@ -1,26 +1,84 @@
 # iOSiSH
 
-This is my iSH setup script for Alpine on iPhone.
+Bootstrap script for **Alpine Linux on iSH (iPhone/iPad)**.
 
-It sets up the stuff I actually use, gets `rabbit` configured, fixes SSH in both directions, and puts Zsh, Oh My Zsh, and Zinit in place without adding a bunch of extra theme junk.
+This repo is focused on getting a practical shell-first environment working on iSH with:
 
-## What it does
+- a real user account
+- Zsh as the login shell for both `root` and `rabbit`
+- Oh My Zsh + Zinit
+- stable Zsh plugins that work on iSH
+- OpenSSH server + client config
+- sudo + doas
+- OpenRC best-effort service registration
+- iSH-safe aliases
+- persistent hostname handling for the iSH hostname limitation
 
-- installs the packages I use in iSH
-- sets up the `rabbit` user
-- makes both `root` and `rabbit` start in Zsh
-- configures Oh My Zsh and Zinit plugins
-- sets up `sudo` and `doas`
-- configures the iSH SSH server in `/etc/ssh/sshd_config`
-- writes SSH client aliases in `~/.ssh/config`
-- writes a separate `.aliases` file and sources it from `.zshrc`
-- installs OpenRC and adds `sshd` where that makes sense
-- writes persistent hostname config for iSH
+---
 
-## Run it
+## What this script does
 
-Run it as root in iSH:
+The main script is:
+
+- `iOSiSH.sh`
+
+It is intended to be run as **root** on Alpine inside iSH.
+
+### It will:
+
+- update and upgrade packages with `apk`
+- install core tools including:
+  - `zsh`
+  - `git`
+  - `curl`
+  - `openssh`
+  - `sudo`
+  - `doas`
+  - `openrc`
+  - `tmux`
+  - `exa`
+- create/configure the user:
+  - `rabbit`
+- set login shell to `zsh` for:
+  - `root`
+  - `rabbit`
+- set passwords exactly to:
+  - `root: dorothy`
+  - `rabbit: dorothy`
+- install **Oh My Zsh** for both users
+- install **Zinit** for both users
+- enable these plugin components:
+  - `zsh-completions`
+  - `zsh-autosuggestions`
+  - `zsh-history-substring-search`
+  - `fast-syntax-highlighting`
+  - fallback `zsh-syntax-highlighting`
+- create:
+  - `~/.config/zsh/.aliases`
+- source that aliases file from `.zshrc`
+- configure **OpenSSH server** in:
+  - `/etc/ssh/sshd_config`
+- configure **SSH client aliases** in:
+  - `/root/.ssh/config`
+  - `/home/rabbit/.ssh/config`
+- generate SSH keys for:
+  - `root`
+  - `rabbit`
+- write persistent hostname:
+  - `iphoneish`
+- configure prompt to read `/etc/hostname` instead of relying on the live hostname
+- install OpenRC and attempt to register `sshd`
+- start `sshd` in a best-effort way for iSH
+
+---
+
+## Important iSH behavior
+
+iSH has some constraints that affect normal Alpine/Linux behavior.
+
+### Hostname limitation
+
+On iSH, this often fails:
 
 ```sh
-su - root
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh)"
+hostname iphoneish
