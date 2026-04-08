@@ -65,7 +65,7 @@ It is intended to be run as **root** on Alpine inside iSH.
   - `root`
   - `rabbit`
 - write persistent hostname:
-  - `iphoneish`
+  - `iOSiSH`
 - configure prompt to read `/etc/hostname` instead of relying on the live hostname
 - install OpenRC and attempt to register `sshd`
 - start `sshd` in a best-effort way for iSH
