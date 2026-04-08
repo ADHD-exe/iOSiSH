@@ -81,4 +81,4 @@ iSH has some constraints that affect normal Alpine/Linux behavior.
 On iSH, this often fails:
 
 ```sh
-hostname iphoneish
+hostname iOSiSH
