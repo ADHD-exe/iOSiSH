@@ -1,6 +1,5 @@
 # iSH-friendly aliases shared by root and rabbit
 
-alias -='cd -'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias ....='cd ../../..'
