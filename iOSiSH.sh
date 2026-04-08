@@ -6,13 +6,14 @@
 
 set -u
 
-HOSTNAME_WANTED="iOSiSH"
+HOSTNAME_WANTED="iphoneish"
 RABBIT_USER="rabbit"
 ROOT_PASSWORD="dorothy"
 RABBIT_PASSWORD="dorothy"
 CACHYOS_HOST="172.20.10.7"
 CACHYOS_USER="rabbit"
 CACHYOS_PORT="22"
+ALIASES_URL="https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/.aliases"
 
 INSTALLED_PKGS=""
 SKIPPED_PKGS=""
@@ -75,6 +76,7 @@ install_pkg_alias() {
     else
         warn "$label: not found in Alpine repositories, skipping"
     fi
+
     SKIPPED_PKGS=$(append_csv "$SKIPPED_PKGS" "$label")
     return 0
 }
@@ -103,7 +105,7 @@ ensure_user() {
         ok "User $RABBIT_USER already exists"
     else
         info "Creating user $RABBIT_USER"
-        if adduser -D -h "/home/$RABBIT_USER" "$RABBIT_USER" >/dev/null 2>&1; then
+        if adduser -D -h "/home/$RABBIT_USER" -s /bin/sh "$RABBIT_USER" >/dev/null 2>&1; then
             ok "Created user $RABBIT_USER"
         else
             err "Failed to create user $RABBIT_USER"
@@ -247,7 +249,7 @@ install_shell_frameworks() {
     chmod 700 "$home_dir/.ssh" 2>/dev/null || true
 }
 
-write_aliases() {
+install_shared_aliases() {
     home_dir="$1"
     owner_user="$2"
     alias_dir="$home_dir/.config/zsh"
@@ -255,122 +257,17 @@ write_aliases() {
 
     mkdir -p "$alias_dir"
 
-    cat > "$alias_file" <<'EOF'
-# iSH-friendly aliases shared by root and rabbit
+    if cmd_exists curl; then
+        if curl -fsSL "$ALIASES_URL" -o "$alias_file"; then
+            chown -R "$owner_user:$owner_user" "$home_dir/.config" 2>/dev/null || true
+            chmod 644 "$alias_file" 2>/dev/null || true
+            ok "Installed shared aliases for $owner_user"
+            return 0
+        fi
+    fi
 
-alias -='cd -'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
-alias .....='cd ../../../..'
-alias .3='cd ../../..'
-alias .4='cd ../../../..'
-alias .5='cd ../../../../..'
-
-alias _='sudo '
-alias c='clear'
-alias cls='clear'
-alias h='history'
-alias hl='history | less'
-alias hs='history | grep'
-alias hsi='history | grep -i'
-
-if command -v nvim >/dev/null 2>&1; then
-    alias edit='nvim'
-    alias v='nvim'
-    alias vi='nvim'
-    alias vim='nvim'
-    alias zshrc='nvim ~/.zshrc'
-    alias al='nvim ~/.config/zsh/.aliases'
-elif command -v nano >/dev/null 2>&1; then
-    alias edit='nano'
-    alias zshrc='nano ~/.zshrc'
-    alias al='nano ~/.config/zsh/.aliases'
-fi
-
-alias md='mkdir -p'
-alias mkdir='mkdir -pv'
-alias cp='cp -iv'
-alias mv='mv -iv'
-alias rm='rm -Iv'
-alias rd='rmdir'
-alias du='du -h'
-alias df='df -h'
-
-grep --help >/dev/null 2>&1 && alias grep='grep --color=auto'
-alias egrep='grep -E'
-alias fgrep='grep -F'
-diff --help >/dev/null 2>&1 && alias diff='diff --color=auto'
-
-if command -v bat >/dev/null 2>&1; then
-    alias cat='bat --paging=never --style=plain'
-    alias rcat='command cat'
-fi
-
-alias g='git'
-alias ga='git add'
-alias gaa='git add --all'
-alias gc='git commit'
-alias gca='git commit --amend'
-alias gco='git checkout'
-alias gcb='git checkout -b'
-alias gd='git diff'
-alias gf='git fetch'
-alias gl='git pull'
-alias gp='git push'
-alias gs='git status'
-alias gst='git status'
-alias glog='git log --oneline --decorate --graph'
-alias gloga='git log --oneline --decorate --graph --all'
-alias gpf='git push --force-with-lease --force-if-includes'
-
-command -v rg >/dev/null 2>&1 && alias rg='rg'
-command -v fd >/dev/null 2>&1 && alias f='fd'
-command -v tmux >/dev/null 2>&1 && alias t='tmux'
-command -v htop >/dev/null 2>&1 && alias htop='htop'
-command -v lazygit >/dev/null 2>&1 && alias lg='lazygit'
-command -v tree >/dev/null 2>&1 && alias tree='tree -C'
-
-command -v ip >/dev/null 2>&1 && alias ipa='ip a'
-command -v ip >/dev/null 2>&1 && alias ipr='ip r'
-command -v ip >/dev/null 2>&1 && alias ip='ip'
-
-command -v doas >/dev/null 2>&1 && alias se='doas rc-update add'
-command -v doas >/dev/null 2>&1 && alias sd='doas rc-update del'
-command -v rc-service >/dev/null 2>&1 && alias ss='rc-service'
-command -v doas >/dev/null 2>&1 && alias sr='doas rc-service'
-command -v doas >/dev/null 2>&1 && alias fw='doas iptables'
-
-command -v sudo >/dev/null 2>&1 && alias please='sudo'
-alias sudo='nocorrect sudo'
-alias su='nocorrect su'
-
-command -v doas >/dev/null 2>&1 && alias apku='doas apk update'
-command -v doas >/dev/null 2>&1 && alias apki='doas apk add'
-command -v doas >/dev/null 2>&1 && alias apkr='doas apk del'
-
-alias sshc='ssh cachyos'
-alias ssht='ssh -N cachyos-tunnel'
-alias rl='exec zsh -l'
-
-if command -v exa >/dev/null 2>&1; then
-    alias ls='exa --group-directories-first'
-    alias l='exa -lh --group-directories-first'
-    alias la='exa -la --group-directories-first'
-    alias ll='exa -lah --group-directories-first --git'
-    alias lt='exa -T --level=2 --group-directories-first'
-else
-    alias ls='ls --color=auto'
-    alias l='ls -lh --color=auto'
-    alias la='ls -la --color=auto'
-    alias ll='ls -lah --color=auto'
-    command -v tree >/dev/null 2>&1 && alias lt='tree -L 2'
-fi
-EOF
-
-    chown -R "$owner_user:$owner_user" "$home_dir/.config" 2>/dev/null || true
-    chmod 644 "$alias_file" 2>/dev/null || true
-    ok "Wrote aliases for $owner_user"
+    warn "Failed to download shared aliases for $owner_user"
+    return 1
 }
 
 write_zshrc() {
@@ -418,7 +315,7 @@ mkdir -p "\$HOME/.cache/zsh" "\$HOME/.local/share" "\$HOME/.ssh" "\$HOME/.config
 
 autoload -Uz compinit
 rm -f "\$HOME"/.zcompdump*
-compinit -d "\$HOME/.cache/zsh/zcompdump-\$(id -un 2>/dev/null)"
+compinit -i -d "\$HOME/.cache/zsh/zcompdump-\$(id -un 2>/dev/null)"
 
 HOST_DISPLAY="\$(cat /etc/hostname 2>/dev/null || echo localhost)"
 PROMPT='%F{$user_color}%n@'"\$HOST_DISPLAY"'%f:%F{yellow}%~%f %# '
@@ -661,6 +558,55 @@ start_sshd_safely() {
     fi
 }
 
+fix_zsh_permissions_for_user() {
+    home_dir="$1"
+    owner_user="$2"
+
+    [ -d "$home_dir" ] || return 0
+
+    chown "$owner_user:$owner_user" "$home_dir" 2>/dev/null || true
+    chmod 755 "$home_dir" 2>/dev/null || true
+
+    for d in \
+        "$home_dir/.oh-my-zsh" \
+        "$home_dir/.local" \
+        "$home_dir/.cache" \
+        "$home_dir/.config"
+    do
+        if [ -e "$d" ]; then
+            chown -R "$owner_user:$owner_user" "$d" 2>/dev/null || true
+            chmod -R go-w "$d" 2>/dev/null || true
+        fi
+    done
+
+    if [ -d "$home_dir/.ssh" ]; then
+        chown -R "$owner_user:$owner_user" "$home_dir/.ssh" 2>/dev/null || true
+        chmod 700 "$home_dir/.ssh" 2>/dev/null || true
+        find "$home_dir/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+        [ -f "$home_dir/.ssh/id_ed25519.pub" ] && chmod 644 "$home_dir/.ssh/id_ed25519.pub" 2>/dev/null || true
+    fi
+
+    ok "Fixed Zsh-related permissions for $owner_user"
+}
+
+prime_zsh_for_user() {
+    owner_user="$1"
+
+    if [ "$owner_user" = "root" ]; then
+        if zsh -ic 'exit 0' >/dev/null 2>&1; then
+            ok "Primed Zsh for root"
+        else
+            warn "Could not fully prime Zsh for root on first pass"
+        fi
+    else
+        if su - "$owner_user" -c 'zsh -ic "exit 0"' >/dev/null 2>&1; then
+            ok "Primed Zsh for $owner_user"
+        else
+            warn "Could not fully prime Zsh for $owner_user on first pass"
+        fi
+    fi
+}
+
 post_run_self_test() {
     say
     say "Post-run self-test:"
@@ -761,8 +707,10 @@ main() {
     write_profiles
     install_shell_frameworks /root root
     install_shell_frameworks "/home/$RABBIT_USER" "$RABBIT_USER"
-    write_aliases /root root
-    write_aliases "/home/$RABBIT_USER" "$RABBIT_USER"
+
+    install_shared_aliases /root root
+    install_shared_aliases "/home/$RABBIT_USER" "$RABBIT_USER"
+
     write_zshrc /root root
     write_zshrc "/home/$RABBIT_USER" "$RABBIT_USER"
 
@@ -797,6 +745,12 @@ main() {
 
     configure_openrc
     start_sshd_safely
+
+    fix_zsh_permissions_for_user /root root
+    fix_zsh_permissions_for_user "/home/$RABBIT_USER" "$RABBIT_USER"
+
+    prime_zsh_for_user root
+    prime_zsh_for_user "$RABBIT_USER"
 
     say
     say "============================================================"
@@ -861,6 +815,6 @@ main() {
     say "  5. Linux does not have true universal global proxying and some apps need separate proxy configuration."
 
     post_run_self_test
-} 
+}
 
 main "$@"
