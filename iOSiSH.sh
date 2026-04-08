@@ -6,7 +6,7 @@
 
 set -u
 
-HOSTNAME_WANTED="iphoneish"
+HOSTNAME_WANTED="iOSiSH"
 RABBIT_USER="rabbit"
 ROOT_PASSWORD="dorothy"
 RABBIT_PASSWORD="dorothy"
