@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "light": {
+    "backgroundColor": "#0a0f14",
+    "foregroundColor": "#c7f0ff",
+    "cursorColor": "#b578ff",
+    "colorPaletteOverrides": [
+      "#0a0f14",
+      "#ff4d6d",
+      "#00ff9c",
+      "#ffe066",
+      "#00b4ff",
+      "#ff00c8",
+      "#00f5ff",
+      "#c7f0ff",
+      "#1a2633",
+      "#ff6b81",
+      "#5cff2b",
+      "#fff3a3",
+      "#4dcfff",
+      "#ff6603",
+      "#5cffff",
+      "#ffffff"
+    ]
+  },
+  "dark": {
+    "backgroundColor": "#0a0f14",
+    "foregroundColor": "#c7f0ff",
+    "cursorColor": "#b578ff",
+    "colorPaletteOverrides": [
+      "#0a0f14",
+      "#ff4d6d",
+      "#00ff9c",
+      "#ffe066",
+      "#00b4ff",
+      "#ff00c8",
+      "#00f5ff",
+      "#c7f0ff",
+      "#1a2633",
+      "#ff6b81",
+      "#5cff2b",
+      "#fff3a3",
+      "#4dcfff",
+      "#ff6603",
+      "#5cffff",
+      "#ffffff"
+    ]
+  }
+}
