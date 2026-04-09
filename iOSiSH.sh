@@ -2,12 +2,13 @@
 # Alpine Linux / iSH setup script
 # POSIX sh
 # Safe to run as root
-# Idempotent where practical
+# Rabbit-owned shared shell assets; root reuses them
 
 set -u
 
 HOSTNAME_WANTED="iOSiSH"
 RABBIT_USER="rabbit"
+RABBIT_HOME="/home/$RABBIT_USER"
 ROOT_PASSWORD="default"
 RABBIT_PASSWORD="default"
 CACHYOS_HOST="172.20.10.7"
@@ -105,7 +106,7 @@ ensure_user() {
         ok "User $RABBIT_USER already exists"
     else
         info "Creating user $RABBIT_USER"
-        if adduser -D -h "/home/$RABBIT_USER" -s /bin/sh "$RABBIT_USER" >/dev/null 2>&1; then
+        if adduser -D -h "$RABBIT_HOME" -s /bin/sh "$RABBIT_USER" >/dev/null 2>&1; then
             ok "Created user $RABBIT_USER"
         else
             err "Failed to create user $RABBIT_USER"
@@ -113,8 +114,8 @@ ensure_user() {
         fi
     fi
 
-    mkdir -p "/home/$RABBIT_USER"
-    chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER" 2>/dev/null || true
+    mkdir -p "$RABBIT_HOME"
+    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME" 2>/dev/null || true
 
     ensure_group_exists wheel
 
@@ -122,14 +123,6 @@ ensure_user() {
         ok "Ensured $RABBIT_USER is in wheel"
     else
         info "$RABBIT_USER may already be in wheel"
-    fi
-
-    if grep -q '^root:' /etc/group 2>/dev/null; then
-        if adduser "$RABBIT_USER" root >/dev/null 2>&1; then
-            ok "Ensured $RABBIT_USER is in root group"
-        else
-            info "$RABBIT_USER may already be in root group"
-        fi
     fi
 }
 
@@ -180,14 +173,25 @@ set_shell_in_passwd() {
         return 0
     fi
 
+    if cmd_exists usermod; then
+        if usermod -s "$newshell" "$usr" >/dev/null 2>&1; then
+            ok "Set login shell for $usr to $newshell"
+            return 0
+        fi
+    fi
+
     tmpf="/tmp/passwd.$$"
     if awk -F: -v OFS=: -v u="$usr" -v s="$newshell" '
         $1==u { $7=s }
         { print }
     ' /etc/passwd > "$tmpf"; then
-        cat "$tmpf" > /etc/passwd
-        rm -f "$tmpf"
-        ok "Set login shell for $usr to $newshell"
+        if [ -s "$tmpf" ]; then
+            mv "$tmpf" /etc/passwd
+            ok "Set login shell for $usr to $newshell"
+        else
+            rm -f "$tmpf"
+            warn "Generated passwd replacement was empty; not updating /etc/passwd"
+        fi
     else
         rm -f "$tmpf"
         warn "Failed to update login shell for $usr"
@@ -199,10 +203,10 @@ write_profiles() {
     chmod 644 /root/.profile
     ok "Wrote /root/.profile"
 
-    printf '%s\n' 'exec zsh -l' > "/home/$RABBIT_USER/.profile"
-    chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER/.profile" 2>/dev/null || true
-    chmod 644 "/home/$RABBIT_USER/.profile"
-    ok "Wrote /home/$RABBIT_USER/.profile"
+    printf '%s\n' 'exec zsh -l' > "$RABBIT_HOME/.profile"
+    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.profile" 2>/dev/null || true
+    chmod 644 "$RABBIT_HOME/.profile"
+    ok "Wrote $RABBIT_HOME/.profile"
 }
 
 clone_or_update_repo() {
@@ -233,68 +237,82 @@ clone_or_update_repo() {
 }
 
 install_shell_frameworks() {
-    home_dir="$1"
-    owner_user="$2"
+    omz_dir="$RABBIT_HOME/.oh-my-zsh"
+    zinit_dir="$RABBIT_HOME/.local/share/zinit/zinit.git"
 
-    omz_dir="$home_dir/.oh-my-zsh"
-    zinit_dir="$home_dir/.local/share/zinit/zinit.git"
+    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$omz_dir" "Oh My Zsh for $RABBIT_USER" || true
+    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$zinit_dir" "Zinit for $RABBIT_USER" || true
 
-    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$omz_dir" "Oh My Zsh for $owner_user" || true
-    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$zinit_dir" "Zinit for $owner_user" || true
+    mkdir -p "$RABBIT_HOME/.cache/zsh" "$RABBIT_HOME/.local/share" "$RABBIT_HOME/.ssh" "$RABBIT_HOME/.config/zsh"
+    rm -f "$RABBIT_HOME"/.zcompdump* 2>/dev/null || true
 
-    mkdir -p "$home_dir/.cache/zsh" "$home_dir/.local/share" "$home_dir/.ssh" "$home_dir/.config/zsh"
-    rm -f "$home_dir"/.zcompdump* 2>/dev/null || true
+    chown -R "$RABBIT_USER:$RABBIT_USER" \
+        "$RABBIT_HOME/.oh-my-zsh" \
+        "$RABBIT_HOME/.local" \
+        "$RABBIT_HOME/.cache" \
+        "$RABBIT_HOME/.ssh" \
+        "$RABBIT_HOME/.config" 2>/dev/null || true
 
-    chown -R "$owner_user:$owner_user" "$home_dir/.oh-my-zsh" "$home_dir/.local" "$home_dir/.cache" "$home_dir/.ssh" "$home_dir/.config" 2>/dev/null || true
-    chmod 700 "$home_dir/.ssh" 2>/dev/null || true
+    chmod 700 "$RABBIT_HOME/.ssh" 2>/dev/null || true
 }
 
 install_shared_aliases() {
-    home_dir="$1"
-    owner_user="$2"
-    alias_dir="$home_dir/.config/zsh"
+    alias_dir="$RABBIT_HOME/.config/zsh"
     alias_file="$alias_dir/.aliases"
 
     mkdir -p "$alias_dir"
 
+    if [ -f ".aliases" ]; then
+        cp -f ".aliases" "$alias_file"
+        chown "$RABBIT_USER:$RABBIT_USER" "$alias_file" 2>/dev/null || true
+        chmod 644 "$alias_file" 2>/dev/null || true
+        ok "Installed shared aliases from local repo copy"
+        return 0
+    fi
+
+    if [ -f "$(dirname "$0")/.aliases" ]; then
+        cp -f "$(dirname "$0")/.aliases" "$alias_file"
+        chown "$RABBIT_USER:$RABBIT_USER" "$alias_file" 2>/dev/null || true
+        chmod 644 "$alias_file" 2>/dev/null || true
+        ok "Installed shared aliases from script directory"
+        return 0
+    fi
+
     if cmd_exists curl; then
         if curl -fsSL "$ALIASES_URL" -o "$alias_file"; then
-            chown -R "$owner_user:$owner_user" "$home_dir/.config" 2>/dev/null || true
+            chown "$RABBIT_USER:$RABBIT_USER" "$alias_file" 2>/dev/null || true
             chmod 644 "$alias_file" 2>/dev/null || true
-            ok "Installed shared aliases for $owner_user"
+            ok "Installed shared aliases from GitHub"
             return 0
         fi
     fi
 
-    warn "Failed to download shared aliases for $owner_user"
+    warn "Failed to install shared aliases"
     return 1
 }
 
-write_zshrc() {
-    home_dir="$1"
-    owner_user="$2"
-    zshrc="$home_dir/.zshrc"
-
-    if [ "$owner_user" = "root" ]; then
-        user_color="red"
-    else
-        user_color="cyan"
-    fi
+write_shared_zshrc() {
+    zshrc="$RABBIT_HOME/.zshrc"
 
     cat > "$zshrc" <<EOF
 # Generated by Alpine/iSH setup script
-# Zinit-based, iSH-friendly, no Nerd Font dependencies
+# Rabbit-owned shared Zsh config; reused by root via symlink
 
+export SHARED_HOME="$RABBIT_HOME"
 export LANG="\${LANG:-C.UTF-8}"
 export EDITOR="\${EDITOR:-nvim}"
 export VISUAL="\${VISUAL:-nvim}"
 export PAGER="\${PAGER:-less}"
 export LESS="-FRX"
+
+# Keep history per-user even though the rest of the shell stack is shared.
 export HISTFILE="\$HOME/.zsh_history"
 export HISTSIZE=50000
 export SAVEHIST=50000
-export ZSH="\$HOME/.oh-my-zsh"
-export ZINIT_HOME="\$HOME/.local/share/zinit/zinit.git"
+
+# Shared shell framework locations always come from rabbit's home.
+export ZSH="\$SHARED_HOME/.oh-my-zsh"
+export ZINIT_HOME="\$SHARED_HOME/.local/share/zinit/zinit.git"
 
 setopt APPEND_HISTORY
 setopt HIST_IGNORE_DUPS
@@ -311,17 +329,23 @@ setopt ALWAYS_TO_END
 setopt PROMPT_SUBST
 setopt NULL_GLOB
 
-mkdir -p "\$HOME/.cache/zsh" "\$HOME/.local/share" "\$HOME/.ssh" "\$HOME/.config/zsh"
+mkdir -p "\$HOME/.cache/zsh" "\$HOME/.ssh"
+mkdir -p "\$SHARED_HOME/.config/zsh" "\$SHARED_HOME/.local/share"
 
 autoload -Uz compinit
 rm -f "\$HOME"/.zcompdump*
 compinit -i -d "\$HOME/.cache/zsh/zcompdump-\$(id -un 2>/dev/null)"
 
 HOST_DISPLAY="\$(cat /etc/hostname 2>/dev/null || echo localhost)"
-PROMPT='%F{$user_color}%n@'"\$HOST_DISPLAY"'%f:%F{yellow}%~%f %# '
+if [ "\$(id -u 2>/dev/null)" = "0" ]; then
+    USER_COLOR="red"
+else
+    USER_COLOR="cyan"
+fi
+PROMPT='%F{'\$USER_COLOR'}%n@'"\$HOST_DISPLAY"'%f:%F{yellow}%~%f %# '
 RPROMPT='%(?..%F{red}[%?]%f)'
 
-[ -r "\$HOME/.config/zsh/.aliases" ] && . "\$HOME/.config/zsh/.aliases"
+[ -r "\$SHARED_HOME/.config/zsh/.aliases" ] && . "\$SHARED_HOME/.config/zsh/.aliases"
 
 if command -v zoxide >/dev/null 2>&1; then
     eval "\$(zoxide init zsh)"
@@ -372,17 +396,39 @@ bindkey -e
 umask 022
 EOF
 
-    chown "$owner_user:$owner_user" "$zshrc" 2>/dev/null || true
+    chown "$RABBIT_USER:$RABBIT_USER" "$zshrc" 2>/dev/null || true
     chmod 644 "$zshrc"
-    ok "Wrote $zshrc"
+    ok "Wrote shared Zsh config: $zshrc"
 }
 
-write_user_ssh_config() {
-    ssh_home="$1"
-    ssh_user="$2"
-    cfg="$ssh_home/.ssh/config"
+ensure_shared_ssh_keypair() {
+    key="$RABBIT_HOME/.ssh/id_ed25519"
 
-    mkdir -p "$ssh_home/.ssh"
+    mkdir -p "$RABBIT_HOME/.ssh"
+    if [ ! -f "$key" ]; then
+        if cmd_exists ssh-keygen; then
+            if ssh-keygen -q -t ed25519 -N '' -f "$key" >/dev/null 2>&1; then
+                ok "Generated shared SSH key for $RABBIT_USER"
+            else
+                warn "Failed to generate shared SSH key"
+            fi
+        else
+            warn "ssh-keygen not found; cannot create SSH key"
+        fi
+    else
+        ok "Shared SSH key already exists"
+    fi
+
+    chown -R "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    chmod 700 "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    find "$RABBIT_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+    [ -f "$RABBIT_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$RABBIT_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
+}
+
+write_shared_ssh_config() {
+    cfg="$RABBIT_HOME/.ssh/config"
+
+    mkdir -p "$RABBIT_HOME/.ssh"
     cat > "$cfg" <<EOF
 Host *
     ServerAliveInterval 30
@@ -396,7 +442,7 @@ Host cachyos
     PreferredAuthentications publickey,password
     PubkeyAuthentication yes
     IdentitiesOnly yes
-    IdentityFile $ssh_home/.ssh/id_ed25519
+    IdentityFile $RABBIT_HOME/.ssh/id_ed25519
 
 Host cachyos-tunnel
     HostName $CACHYOS_HOST
@@ -405,96 +451,68 @@ Host cachyos-tunnel
     PreferredAuthentications publickey,password
     PubkeyAuthentication yes
     IdentitiesOnly yes
-    IdentityFile $ssh_home/.ssh/id_ed25519
+    IdentityFile $RABBIT_HOME/.ssh/id_ed25519
     DynamicForward 1080
     Compression yes
     ExitOnForwardFailure yes
 EOF
     chmod 600 "$cfg"
-    chown -R "$ssh_user:$ssh_user" "$ssh_home/.ssh" 2>/dev/null || true
-    ok "Wrote SSH client config for $ssh_user"
+    chown -R "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    ok "Wrote shared SSH client config"
 }
 
-ensure_ssh_keypair() {
-    ssh_home="$1"
-    ssh_user="$2"
-    key="$ssh_home/.ssh/id_ed25519"
+link_path_force() {
+    src="$1"
+    dst="$2"
 
-    mkdir -p "$ssh_home/.ssh"
-    if [ ! -f "$key" ]; then
-        if cmd_exists ssh-keygen; then
-            if ssh-keygen -q -t ed25519 -N '' -f "$key" >/dev/null 2>&1; then
-                ok "Generated SSH key for $ssh_user"
-            else
-                warn "Failed to generate SSH key for $ssh_user"
-            fi
-        else
-            warn "ssh-keygen missing; cannot generate SSH key for $ssh_user"
-        fi
-    else
-        ok "SSH key already exists for $ssh_user"
-    fi
-    chmod 700 "$ssh_home/.ssh" 2>/dev/null || true
-    chmod 600 "$key" 2>/dev/null || true
-    chmod 644 "$key.pub" 2>/dev/null || true
-    chown -R "$ssh_user:$ssh_user" "$ssh_home/.ssh" 2>/dev/null || true
+    parent="$(dirname "$dst")"
+    mkdir -p "$parent"
+
+    rm -rf "$dst"
+    ln -s "$src" "$dst"
+}
+
+link_root_to_rabbit_assets() {
+    mkdir -p /root /root/.config /root/.local/share /root/.cache /root/.ssh
+
+    # Shared shell stack
+    link_path_force "$RABBIT_HOME/.zshrc" /root/.zshrc
+    link_path_force "$RABBIT_HOME/.oh-my-zsh" /root/.oh-my-zsh
+    mkdir -p /root/.local/share
+    link_path_force "$RABBIT_HOME/.local/share/zinit" /root/.local/share/zinit
+    mkdir -p /root/.config
+    link_path_force "$RABBIT_HOME/.config/zsh" /root/.config/zsh
+
+    # Shared SSH assets
+    link_path_force "$RABBIT_HOME/.ssh/config" /root/.ssh/config
+    link_path_force "$RABBIT_HOME/.ssh/id_ed25519" /root/.ssh/id_ed25519
+    link_path_force "$RABBIT_HOME/.ssh/id_ed25519.pub" /root/.ssh/id_ed25519.pub
+
+    chmod 700 /root/.ssh 2>/dev/null || true
+
+    ok "Linked root to rabbit-owned shared shell and SSH assets"
 }
 
 configure_sudo() {
     mkdir -p /etc/sudoers.d
     printf '%%wheel ALL=(ALL) ALL\n' > /etc/sudoers.d/wheel
-    chmod 440 /etc/sudoers.d/wheel 2>/dev/null || true
+    chmod 440 /etc/sudoers.d/wheel
     ok "Configured sudo for wheel group"
 }
 
 configure_doas() {
-    cat > /etc/doas.conf <<'EOF'
-permit persist :wheel
-permit persist rabbit as root
-permit persist root
-EOF
-    chmod 0400 /etc/doas.conf 2>/dev/null || true
-    ok "Configured doas for wheel, rabbit, and root"
-}
-
-configure_openrc() {
-    if ! cmd_exists rc-update; then
-        warn "OpenRC not available; skipping OpenRC service setup"
-        return 0
-    fi
-
-    mkdir -p /run/openrc 2>/dev/null || true
-    touch /run/openrc/softlevel 2>/dev/null || true
-
-    if [ -f /etc/init.d/sshd ]; then
-        if rc-update add sshd default >/dev/null 2>&1; then
-            ok "Added sshd to OpenRC default runlevel"
-        else
-            info "sshd may already be in OpenRC default runlevel"
-        fi
-
-        if rc-service sshd status >/dev/null 2>&1; then
-            ok "OpenRC sees sshd service"
-        else
-            if rc-service sshd start >/dev/null 2>&1; then
-                ok "Started sshd via OpenRC"
-            else
-                warn "OpenRC could not start sshd; falling back to direct sshd start"
-            fi
-        fi
-    else
-        warn "No /etc/init.d/sshd found; skipping OpenRC sshd registration"
-    fi
+    printf 'permit persist :wheel\n' > /etc/doas.conf
+    chmod 0400 /etc/doas.conf
+    ok "Configured doas for wheel group"
 }
 
 generate_host_keys_if_needed() {
-    if [ -f /etc/ssh/ssh_host_rsa_key ] || [ -f /etc/ssh/ssh_host_ed25519_key ] || [ -f /etc/ssh/ssh_host_ecdsa_key ]; then
+    if [ -f /etc/ssh/ssh_host_ed25519_key ] || [ -f /etc/ssh/ssh_host_rsa_key ]; then
         ok "SSH host keys already exist"
         return 0
     fi
 
     if cmd_exists ssh-keygen; then
-        info "Generating SSH host keys"
         if ssh-keygen -A >/dev/null 2>&1; then
             ok "Generated SSH host keys"
         else
@@ -512,81 +530,103 @@ ensure_sshd_config_key() {
 
     [ -f "$cfg" ] || touch "$cfg"
 
-    tmpf="/tmp/sshd_config.$$"
-    awk -v k="$key" -v v="$value" '
-        BEGIN { done=0 }
-        {
-            if ($0 ~ "^[#[:space:]]*" k "[[:space:]]") {
-                if (!done) {
-                    print k " " v
-                    done=1
+    if grep -Eq "^[#[:space:]]*${key}[[:space:]]+" "$cfg" 2>/dev/null; then
+        tmpf="/tmp/sshd_config.$$"
+        if awk -v k="$key" -v v="$value" '
+            BEGIN { done=0 }
+            {
+                if ($0 ~ "^[#[:space:]]*" k "[[:space:]]+") {
+                    if (!done) {
+                        print k " " v
+                        done=1
+                    }
+                } else {
+                    print
                 }
-            } else {
-                print
             }
-        }
-        END {
-            if (!done) print k " " v
-        }
-    ' "$cfg" > "$tmpf" && cat "$tmpf" > "$cfg"
-    rm -f "$tmpf"
+            END {
+                if (!done) print k " " v
+            }
+        ' "$cfg" > "$tmpf"; then
+            mv "$tmpf" "$cfg"
+        else
+            rm -f "$tmpf"
+            warn "Failed updating $key in $cfg"
+            return 1
+        fi
+    else
+        printf '%s %s\n' "$key" "$value" >> "$cfg"
+    fi
+
     ok "Ensured sshd_config: $key $value"
 }
 
-start_sshd_safely() {
-    mkdir -p /etc/ssh /run/sshd /var/run/sshd
-
-    if ! cmd_exists sshd; then
-        warn "sshd not found; SSH server cannot start"
+configure_openrc() {
+    if ! cmd_exists rc-update; then
+        warn "OpenRC not available; skipping rc-update"
         return 0
     fi
 
-    if ! sshd -t >/dev/null 2>&1; then
-        warn "sshd configuration test failed; not starting sshd"
-        return 0
-    fi
-
-    if ps 2>/dev/null | grep '[s]shd' >/dev/null 2>&1; then
-        ok "sshd already appears to be running"
-        return 0
-    fi
-
-    if /usr/sbin/sshd >/dev/null 2>&1 || sshd >/dev/null 2>&1; then
-        ok "Started sshd directly"
+    if rc-update add sshd default >/dev/null 2>&1; then
+        ok "Added sshd to OpenRC default runlevel"
     else
-        warn "Could not start sshd automatically"
+        warn "Could not add sshd to OpenRC default runlevel"
     fi
 }
 
-fix_zsh_permissions_for_user() {
-    home_dir="$1"
-    owner_user="$2"
+start_sshd_safely() {
+    if cmd_exists service; then
+        if service sshd restart >/dev/null 2>&1 || service sshd start >/dev/null 2>&1; then
+            ok "Started sshd via service"
+            return 0
+        fi
+    fi
 
-    [ -d "$home_dir" ] || return 0
+    if cmd_exists rc-service; then
+        if rc-service sshd restart >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1; then
+            ok "Started sshd via rc-service"
+            return 0
+        fi
+    fi
 
-    chown "$owner_user:$owner_user" "$home_dir" 2>/dev/null || true
-    chmod 755 "$home_dir" 2>/dev/null || true
+    if cmd_exists sshd; then
+        if pkill sshd >/dev/null 2>&1 || true; then :; fi
+        if /usr/sbin/sshd >/dev/null 2>&1 || sshd >/dev/null 2>&1; then
+            ok "Started sshd directly"
+        else
+            warn "Could not start sshd automatically"
+        fi
+    fi
+}
+
+fix_permissions() {
+    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME" 2>/dev/null || true
+    chmod 755 "$RABBIT_HOME" 2>/dev/null || true
 
     for d in \
-        "$home_dir/.oh-my-zsh" \
-        "$home_dir/.local" \
-        "$home_dir/.cache" \
-        "$home_dir/.config"
+        "$RABBIT_HOME/.oh-my-zsh" \
+        "$RABBIT_HOME/.local" \
+        "$RABBIT_HOME/.cache" \
+        "$RABBIT_HOME/.config"
     do
         if [ -e "$d" ]; then
-            chown -R "$owner_user:$owner_user" "$d" 2>/dev/null || true
+            chown -R "$RABBIT_USER:$RABBIT_USER" "$d" 2>/dev/null || true
             chmod -R go-w "$d" 2>/dev/null || true
         fi
     done
 
-    if [ -d "$home_dir/.ssh" ]; then
-        chown -R "$owner_user:$owner_user" "$home_dir/.ssh" 2>/dev/null || true
-        chmod 700 "$home_dir/.ssh" 2>/dev/null || true
-        find "$home_dir/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
-        [ -f "$home_dir/.ssh/id_ed25519.pub" ] && chmod 644 "$home_dir/.ssh/id_ed25519.pub" 2>/dev/null || true
+    if [ -d "$RABBIT_HOME/.ssh" ]; then
+        chown -R "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
+        chmod 700 "$RABBIT_HOME/.ssh" 2>/dev/null || true
+        find "$RABBIT_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+        [ -f "$RABBIT_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$RABBIT_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
     fi
 
-    ok "Fixed Zsh-related permissions for $owner_user"
+    chown root:root /root 2>/dev/null || true
+    chmod 700 /root 2>/dev/null || true
+    chmod 700 /root/.ssh 2>/dev/null || true
+
+    ok "Fixed permissions for shared rabbit assets and /root links"
 }
 
 prime_zsh_for_user() {
@@ -610,6 +650,18 @@ prime_zsh_for_user() {
 post_run_self_test() {
     say
     say "Post-run self-test:"
+
+    if [ -L /root/.zshrc ] && [ "$(readlink /root/.zshrc)" = "$RABBIT_HOME/.zshrc" ]; then
+        say "  [OK] root .zshrc symlinked to rabbit"
+    else
+        say "  [WARN] root .zshrc is not symlinked to rabbit"
+    fi
+
+    if [ -L /root/.ssh/config ] && [ "$(readlink /root/.ssh/config)" = "$RABBIT_HOME/.ssh/config" ]; then
+        say "  [OK] root SSH config symlinked to rabbit"
+    else
+        say "  [WARN] root SSH config is not symlinked to rabbit"
+    fi
 
     if zsh -lc 'exit 0' >/dev/null 2>&1; then
         say "  [OK] root zsh startup"
@@ -705,19 +757,13 @@ main() {
     fi
 
     write_profiles
-    install_shell_frameworks /root root
-    install_shell_frameworks "/home/$RABBIT_USER" "$RABBIT_USER"
 
-    install_shared_aliases /root root
-    install_shared_aliases "/home/$RABBIT_USER" "$RABBIT_USER"
-
-    write_zshrc /root root
-    write_zshrc "/home/$RABBIT_USER" "$RABBIT_USER"
-
-    ensure_ssh_keypair /root root
-    ensure_ssh_keypair "/home/$RABBIT_USER" "$RABBIT_USER"
-    write_user_ssh_config /root root
-    write_user_ssh_config "/home/$RABBIT_USER" "$RABBIT_USER"
+    install_shell_frameworks
+    install_shared_aliases
+    write_shared_zshrc
+    ensure_shared_ssh_keypair
+    write_shared_ssh_config
+    link_root_to_rabbit_assets
 
     if cmd_exists sudo; then
         configure_sudo
@@ -732,9 +778,9 @@ main() {
     fi
 
     info "Configuring OpenSSH server"
-    mkdir -p /etc/ssh /root/.ssh "/home/$RABBIT_USER/.ssh"
-    chmod 700 /root/.ssh "/home/$RABBIT_USER/.ssh" 2>/dev/null || true
-    chown "$RABBIT_USER:$RABBIT_USER" "/home/$RABBIT_USER/.ssh" 2>/dev/null || true
+    mkdir -p /etc/ssh /root/.ssh "$RABBIT_HOME/.ssh"
+    chmod 700 /root/.ssh "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
 
     generate_host_keys_if_needed
     ensure_sshd_config_key "AllowTcpForwarding" "yes"
@@ -746,8 +792,7 @@ main() {
     configure_openrc
     start_sshd_safely
 
-    fix_zsh_permissions_for_user /root root
-    fix_zsh_permissions_for_user "/home/$RABBIT_USER" "$RABBIT_USER"
+    fix_permissions
 
     prime_zsh_for_user root
     prime_zsh_for_user "$RABBIT_USER"
@@ -771,15 +816,26 @@ main() {
         say "  (none)"
     fi
     say
-    say "Passwords set by script:"
-    say "  root: $ROOT_PASSWORD"
-    say "  $RABBIT_USER: $RABBIT_PASSWORD"
+    say "Shared shell owner:"
+    say "  $RABBIT_USER ($RABBIT_HOME)"
+    say
+    say "Shared shell assets:"
+    say "  $RABBIT_HOME/.zshrc"
+    say "  $RABBIT_HOME/.config/zsh/.aliases"
+    say "  $RABBIT_HOME/.oh-my-zsh"
+    say "  $RABBIT_HOME/.local/share/zinit"
+    say
+    say "Shared SSH assets:"
+    say "  $RABBIT_HOME/.ssh/config"
+    say "  $RABBIT_HOME/.ssh/id_ed25519.pub"
+    say
+    say "Root reuses rabbit assets via symlinks under /root"
     say
     say "Privilege escalation:"
     say "  sudo apk update"
     say "  doas apk update"
     say
-    say "SSH client aliases written to ~/.ssh/config:"
+    say "SSH client aliases:"
     say "  ssh cachyos"
     say "  ssh -N cachyos-tunnel"
     say
@@ -789,10 +845,6 @@ main() {
     say "  PasswordAuthentication yes"
     say "  PubkeyAuthentication yes"
     say "  PermitEmptyPasswords no"
-    say
-    say "SSH key locations:"
-    say "  /root/.ssh/id_ed25519.pub"
-    say "  /home/$RABBIT_USER/.ssh/id_ed25519.pub"
     say
     say "OpenRC:"
     say "  sshd will be added where applicable"
