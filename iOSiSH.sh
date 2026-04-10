@@ -919,6 +919,9 @@ export VISUAL="\${VISUAL:-nvim}"
 export PAGER="\${PAGER:-less}"
 export LESS="-FRX"
 
+# Prevent Oh My Zsh compfix noise in shared-asset mode.
+export ZSH_DISABLE_COMPFIX=true
+
 export HISTFILE="\$HOME/.zsh_history"
 export HISTSIZE=50000
 export SAVEHIST=50000
@@ -946,7 +949,14 @@ mkdir -p "\$SHARED_HOME/.config/zsh" "\$SHARED_HOME/.local/share"
 
 autoload -Uz compinit
 rm -f "\$HOME"/.zcompdump*
-compinit -i -d "\$HOME/.cache/zsh/zcompdump-\$(id -un 2>/dev/null)"
+
+# Root is intentionally reusing PRIMARY_USER-owned completion/plugin paths.
+# That ownership pattern will trigger compaudit, so root must use -u.
+if [ "\$(id -u 2>/dev/null)" = "0" ]; then
+    compinit -u -d "\$HOME/.cache/zsh/zcompdump-\$(id -un 2>/dev/null)"
+else
+    compinit -i -d "\$HOME/.cache/zsh/zcompdump-\$(id -un 2>/dev/null)"
+fi
 
 HOST_DISPLAY="\$(cat /etc/hostname 2>/dev/null || echo localhost)"
 if [ "\$(id -u 2>/dev/null)" = "0" ]; then
@@ -1227,6 +1237,11 @@ fix_permissions() {
     chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
     chmod 755 "$PRIMARY_HOME" 2>/dev/null || true
 
+    parent_home="$(dirname "$PRIMARY_HOME")"
+    if [ -n "$parent_home" ] && [ "$parent_home" != "." ] && [ -d "$parent_home" ]; then
+        chmod go-w "$parent_home" 2>/dev/null || true
+    fi
+
     for d in \
         "$PRIMARY_HOME/.oh-my-zsh" \
         "$PRIMARY_HOME/.local" \
@@ -1257,13 +1272,13 @@ prime_zsh_for_user() {
     target_user="$1"
 
     if [ "$target_user" = "root" ]; then
-        if zsh -ic 'exit 0' >/dev/null 2>&1; then
+        if zsh -lc 'exit 0' >/dev/null 2>&1; then
             ok "Primed Zsh for root"
         else
             warn "Could not fully prime Zsh for root on first pass"
         fi
     else
-        if su - "$target_user" -c 'zsh -ic "exit 0"' >/dev/null 2>&1; then
+        if su - "$target_user" -c 'zsh -lc "exit 0"' >/dev/null 2>&1; then
             ok "Primed Zsh for $target_user"
         else
             warn "Could not fully prime Zsh for $target_user on first pass"
