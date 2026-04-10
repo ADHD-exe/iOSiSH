@@ -2,19 +2,34 @@
 # Alpine Linux / iSH setup script
 # POSIX sh
 # Safe to run as root
-# Rabbit-owned shared shell assets; root reuses them
+# Interactive bootstrap with shared shell/SSH assets owned by PRIMARY_USER
 
 set -u
 
-HOSTNAME_WANTED="iOSiSH"
-RABBIT_USER="rabbit"
-RABBIT_HOME="/home/$RABBIT_USER"
-ROOT_PASSWORD="default"
-RABBIT_PASSWORD="default"
-CACHYOS_HOST="172.20.10.7"
-CACHYOS_USER="rabbit"
-CACHYOS_PORT="22"
+ISH_HOSTNAME_DEFAULT="iOSiSH"
+PRIMARY_USER_DEFAULT="rabbit"
+PRIMARY_HOME_DEFAULT=""
+PRIMARY_PASSWORD_DEFAULT=""
+ROOT_PASSWORD_DEFAULT=""
+REMOTE_HOST_DEFAULT=""
+REMOTE_USER_DEFAULT=""
+REMOTE_PORT_DEFAULT="22"
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
+
+# Semicolon-separated key=value pairs for sshd_config management
+SSHD_DEFAULTS_DEFAULT="AllowTcpForwarding=yes;PermitRootLogin=no;PasswordAuthentication=no;PubkeyAuthentication=yes;PermitEmptyPasswords=no"
+SSHD_DEFAULTS="${SSHD_DEFAULTS:-$SSHD_DEFAULTS_DEFAULT}"
+
 ALIASES_URL="https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/.aliases"
+
+ISH_HOSTNAME="${ISH_HOSTNAME:-$ISH_HOSTNAME_DEFAULT}"
+PRIMARY_USER="${PRIMARY_USER:-$PRIMARY_USER_DEFAULT}"
+PRIMARY_HOME="${PRIMARY_HOME:-$PRIMARY_HOME_DEFAULT}"
+PRIMARY_PASSWORD="${PRIMARY_PASSWORD:-$PRIMARY_PASSWORD_DEFAULT}"
+ROOT_PASSWORD="${ROOT_PASSWORD:-$ROOT_PASSWORD_DEFAULT}"
+REMOTE_HOST="${REMOTE_HOST:-$REMOTE_HOST_DEFAULT}"
+REMOTE_USER="${REMOTE_USER:-$REMOTE_USER_DEFAULT}"
+REMOTE_PORT="${REMOTE_PORT:-$REMOTE_PORT_DEFAULT}"
 
 INSTALLED_PKGS=""
 SKIPPED_PKGS=""
@@ -45,7 +60,606 @@ pkg_exists() {
     apk search -x "$1" >/dev/null 2>&1
 }
 
-install_pkg_alias() {
+pause_line() {
+    printf '\n'
+}
+
+tty_available() {
+    [ -r /dev/tty ] && [ -w /dev/tty ]
+}
+
+prompt_text() {
+    prompt="$1"
+    default="${2:-}"
+    answer=""
+
+    if tty_available; then
+        if [ -n "$default" ]; then
+            printf '%s [%s]: ' "$prompt" "$default" > /dev/tty
+        else
+            printf '%s: ' "$prompt" > /dev/tty
+        fi
+        IFS= read -r answer < /dev/tty || true
+    else
+        if [ -n "$default" ]; then
+            printf '%s [%s]: ' "$prompt" "$default"
+        else
+            printf '%s: ' "$prompt"
+        fi
+        IFS= read -r answer || true
+    fi
+
+    if [ -n "$answer" ]; then
+        printf '%s' "$answer"
+    else
+        printf '%s' "$default"
+    fi
+}
+
+prompt_password_once() {
+    prompt="$1"
+    pw=""
+
+    if tty_available; then
+        printf '%s: ' "$prompt" > /dev/tty
+        stty -echo < /dev/tty 2>/dev/null || true
+        IFS= read -r pw < /dev/tty || true
+        stty echo < /dev/tty 2>/dev/null || true
+        printf '\n' > /dev/tty
+    else
+        printf '%s: ' "$prompt" >&2
+        stty -echo 2>/dev/null || true
+        IFS= read -r pw || true
+        stty echo 2>/dev/null || true
+        printf '\n' >&2
+    fi
+
+    printf '%s' "$pw"
+}
+
+prompt_password_confirmed() {
+    label="$1"
+    pw1=""
+    pw2=""
+
+    while :; do
+        pw1="$(prompt_password_once "What password should be set for $label")"
+        if [ -z "$pw1" ]; then
+            warn "Password cannot be empty."
+            continue
+        fi
+
+        pw2="$(prompt_password_once "Confirm password for $label")"
+        if [ "$pw1" != "$pw2" ]; then
+            warn "Passwords did not match. Please try again."
+            continue
+        fi
+
+        printf '%s' "$pw1"
+        return 0
+    done
+}
+
+confirm_yes() {
+    prompt="$1"
+    default="${2:-N}"
+    answer=""
+
+    if tty_available; then
+        case "$default" in
+            Y|y) printf '%s [Y/n]: ' "$prompt" > /dev/tty ;;
+            *) printf '%s [y/N]: ' "$prompt" > /dev/tty ;;
+        esac
+        IFS= read -r answer < /dev/tty || true
+    else
+        case "$default" in
+            Y|y) printf '%s [Y/n]: ' "$prompt" ;;
+            *) printf '%s [y/N]: ' "$prompt" ;;
+        esac
+        IFS= read -r answer || true
+    fi
+
+    if [ -z "$answer" ]; then
+        answer="$default"
+    fi
+
+    case "$answer" in
+        Y|y|yes|YES|Yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+prompt_choice() {
+    prompt="$1"
+    default="$2"
+    answer=""
+
+    if tty_available; then
+        printf '%s' "$prompt" > /dev/tty
+        IFS= read -r answer < /dev/tty || true
+    else
+        printf '%s' "$prompt"
+        IFS= read -r answer || true
+    fi
+
+    if [ -z "$answer" ]; then
+        answer="$default"
+    fi
+
+    printf '%s' "$answer"
+}
+
+is_valid_username() {
+    val="$1"
+    case "$val" in
+        ""|*[!a-z0-9_-]*|[-_]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+is_valid_hostname() {
+    val="$1"
+    case "$val" in
+        ""|*[!A-Za-z0-9._-]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+is_valid_abs_path() {
+    val="$1"
+    case "$val" in
+        /*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_valid_port() {
+    val="$1"
+    case "$val" in
+        ""|*[!0-9]*)
+            return 1
+            ;;
+    esac
+
+    if [ "$val" -ge 1 ] && [ "$val" -le 65535 ]; then
+        return 0
+    fi
+    return 1
+}
+
+require_nonempty() {
+    val="$1"
+    [ -n "$val" ]
+}
+
+is_valid_sshd_key() {
+    key="$1"
+    case "$key" in
+        ""|*[!A-Za-z0-9]*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+is_valid_sshd_value() {
+    val="$1"
+    case "$val" in
+        ""|*";"*|*"="*)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
+normalize_yes_no_default() {
+    val="$1"
+    case "$val" in
+        yes|Yes|YES|y|Y|on|On|ON|true|True|TRUE|1) printf 'yes' ;;
+        no|No|NO|n|N|off|Off|OFF|false|False|FALSE|0) printf 'no' ;;
+        *) printf '%s' "$val" ;;
+    esac
+}
+
+populate_derived_defaults() {
+    if [ -z "$PRIMARY_HOME" ] && [ -n "$PRIMARY_USER" ]; then
+        PRIMARY_HOME="/home/$PRIMARY_USER"
+    fi
+}
+
+print_sshd_defaults() {
+    oldifs="$IFS"
+    IFS=';'
+    set -- $SSHD_DEFAULTS
+    IFS="$oldifs"
+
+    idx=1
+    for pair in "$@"; do
+        [ -n "$pair" ] || continue
+        key=${pair%%=*}
+        value=${pair#*=}
+        printf '  %s. %s %s\n' "$idx" "$key" "$value"
+        idx=$((idx + 1))
+    done
+}
+
+sshd_defaults_has_key() {
+    find_key="$1"
+    oldifs="$IFS"
+    IFS=';'
+    set -- $SSHD_DEFAULTS
+    IFS="$oldifs"
+
+    for pair in "$@"; do
+        [ -n "$pair" ] || continue
+        key=${pair%%=*}
+        if [ "$key" = "$find_key" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+sshd_defaults_upsert() {
+    target_key="$1"
+    target_value="$2"
+    newlist=""
+
+    oldifs="$IFS"
+    IFS=';'
+    set -- $SSHD_DEFAULTS
+    IFS="$oldifs"
+
+    found=0
+    for pair in "$@"; do
+        [ -n "$pair" ] || continue
+        key=${pair%%=*}
+        value=${pair#*=}
+
+        if [ "$key" = "$target_key" ]; then
+            pair="${target_key}=${target_value}"
+            found=1
+        else
+            pair="${key}=${value}"
+        fi
+
+        if [ -n "$newlist" ]; then
+            newlist="${newlist};${pair}"
+        else
+            newlist="${pair}"
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        if [ -n "$newlist" ]; then
+            newlist="${newlist};${target_key}=${target_value}"
+        else
+            newlist="${target_key}=${target_value}"
+        fi
+    fi
+
+    SSHD_DEFAULTS="$newlist"
+}
+
+sshd_defaults_remove() {
+    target_key="$1"
+    newlist=""
+
+    oldifs="$IFS"
+    IFS=';'
+    set -- $SSHD_DEFAULTS
+    IFS="$oldifs"
+
+    for pair in "$@"; do
+        [ -n "$pair" ] || continue
+        key=${pair%%=*}
+        value=${pair#*=}
+
+        if [ "$key" = "$target_key" ]; then
+            continue
+        fi
+
+        if [ -n "$newlist" ]; then
+            newlist="${newlist};${key}=${value}"
+        else
+            newlist="${key}=${value}"
+        fi
+    done
+
+    SSHD_DEFAULTS="$newlist"
+}
+
+validate_sshd_defaults() {
+    count=0
+    oldifs="$IFS"
+    IFS=';'
+    set -- $SSHD_DEFAULTS
+    IFS="$oldifs"
+
+    for pair in "$@"; do
+        [ -n "$pair" ] || continue
+
+        case "$pair" in
+            *=*)
+                key=${pair%%=*}
+                value=${pair#*=}
+                ;;
+            *)
+                err "Invalid SSHD_DEFAULTS entry: $pair"
+                exit 1
+                ;;
+        esac
+
+        if ! is_valid_sshd_key "$key"; then
+            err "Invalid sshd setting name: $key"
+            exit 1
+        fi
+
+        if ! is_valid_sshd_value "$value"; then
+            err "Invalid sshd setting value for $key: $value"
+            exit 1
+        fi
+
+        count=$((count + 1))
+    done
+
+    if [ "$count" -eq 0 ]; then
+        err "SSHD_DEFAULTS cannot be empty"
+        exit 1
+    fi
+}
+
+interactive_edit_sshd_defaults() {
+    pause_line
+    say "SSH server defaults"
+    say "These settings will be applied to /etc/ssh/sshd_config."
+    print_sshd_defaults
+    pause_line
+
+    if confirm_yes "Keep these SSH server defaults" "Y"; then
+        return 0
+    fi
+
+    while :; do
+        pause_line
+        say "Current SSH server defaults:"
+        print_sshd_defaults
+        pause_line
+        say "Options:"
+        say "  a = add or change a setting"
+        say "  r = remove a setting"
+        say "  x = reset to recommended defaults"
+        say "  d = done"
+        pause_line
+
+        action="$(prompt_choice "Choose [a/r/x/d] [d]: " "d")"
+
+        case "$action" in
+            a|A)
+                key="$(prompt_text "Enter sshd setting name (example: X11Forwarding)" "")"
+                if ! is_valid_sshd_key "$key"; then
+                    warn "Setting names must be alphanumeric only, for example PasswordAuthentication."
+                    continue
+                fi
+
+                value="$(prompt_text "Enter value for $key" "")"
+                value="$(normalize_yes_no_default "$value")"
+                if ! is_valid_sshd_value "$value"; then
+                    warn "Value cannot be empty and cannot contain ';' or '='."
+                    continue
+                fi
+
+                sshd_defaults_upsert "$key" "$value"
+                ok "Saved $key $value"
+                ;;
+            r|R)
+                key="$(prompt_text "Enter sshd setting name to remove" "")"
+                if ! sshd_defaults_has_key "$key"; then
+                    warn "Setting not found: $key"
+                    continue
+                fi
+                sshd_defaults_remove "$key"
+                ok "Removed $key"
+                if [ -z "$SSHD_DEFAULTS" ]; then
+                    warn "SSH server defaults cannot be empty; resetting to recommended defaults."
+                    SSHD_DEFAULTS="$SSHD_DEFAULTS_DEFAULT"
+                fi
+                ;;
+            x|X)
+                SSHD_DEFAULTS="$SSHD_DEFAULTS_DEFAULT"
+                ok "Reset SSH server defaults to recommended values"
+                ;;
+            d|D|"")
+                validate_sshd_defaults
+                return 0
+                ;;
+            *)
+                warn "Please choose a, r, x, or d."
+                ;;
+        esac
+    done
+}
+
+interactive_collect_user_config() {
+    pause_line
+    say "Interactive setup"
+    say "Press Enter to accept a default when one is shown."
+    pause_line
+
+    while :; do
+        ISH_HOSTNAME="$(prompt_text "What should this iSH system hostname be" "$ISH_HOSTNAME")"
+        if is_valid_hostname "$ISH_HOSTNAME"; then
+            break
+        fi
+        warn "Hostname cannot be empty and may only contain letters, digits, dot, underscore, and hyphen."
+    done
+
+    while :; do
+        old_primary_user="$PRIMARY_USER"
+        PRIMARY_USER="$(prompt_text "What should the primary username be" "$PRIMARY_USER")"
+        if is_valid_username "$PRIMARY_USER"; then
+            if [ -z "$PRIMARY_HOME" ] || [ "$PRIMARY_HOME" = "/home/$old_primary_user" ]; then
+                PRIMARY_HOME="/home/$PRIMARY_USER"
+            fi
+            break
+        fi
+        warn "Username must use only lowercase letters, digits, underscore, or hyphen."
+    done
+
+    populate_derived_defaults
+
+    while :; do
+        PRIMARY_HOME="$(prompt_text "What home directory should be used for $PRIMARY_USER" "$PRIMARY_HOME")"
+        if is_valid_abs_path "$PRIMARY_HOME"; then
+            break
+        fi
+        warn "Home directory must be an absolute path, for example /home/$PRIMARY_USER"
+    done
+
+    PRIMARY_PASSWORD="$(prompt_password_confirmed "$PRIMARY_USER")"
+    ROOT_PASSWORD="$(prompt_password_confirmed "root")"
+
+    while :; do
+        REMOTE_HOST="$(prompt_text "What remote SSH host should be configured" "$REMOTE_HOST")"
+        if require_nonempty "$REMOTE_HOST"; then
+            break
+        fi
+        warn "Remote host cannot be empty."
+    done
+
+    while :; do
+        REMOTE_USER="$(prompt_text "What remote SSH username should be used" "$REMOTE_USER")"
+        if require_nonempty "$REMOTE_USER"; then
+            break
+        fi
+        warn "Remote SSH username cannot be empty."
+    done
+
+    while :; do
+        REMOTE_PORT="$(prompt_text "What remote SSH port should be used" "$REMOTE_PORT")"
+        if is_valid_port "$REMOTE_PORT"; then
+            break
+        fi
+        warn "Remote SSH port must be a number from 1 to 65535."
+    done
+
+    interactive_edit_sshd_defaults
+}
+
+validate_user_config() {
+    populate_derived_defaults
+
+    if ! is_valid_hostname "$ISH_HOSTNAME"; then
+        err "Invalid ISH_HOSTNAME: $ISH_HOSTNAME"
+        exit 1
+    fi
+
+    if ! is_valid_username "$PRIMARY_USER"; then
+        err "Invalid PRIMARY_USER: $PRIMARY_USER"
+        exit 1
+    fi
+
+    if ! is_valid_abs_path "$PRIMARY_HOME"; then
+        err "Invalid PRIMARY_HOME: $PRIMARY_HOME"
+        exit 1
+    fi
+
+    if ! require_nonempty "$PRIMARY_PASSWORD"; then
+        err "PRIMARY_PASSWORD cannot be empty"
+        exit 1
+    fi
+
+    if ! require_nonempty "$ROOT_PASSWORD"; then
+        err "ROOT_PASSWORD cannot be empty"
+        exit 1
+    fi
+
+    if ! require_nonempty "$REMOTE_HOST"; then
+        err "REMOTE_HOST cannot be empty"
+        exit 1
+    fi
+
+    if ! require_nonempty "$REMOTE_USER"; then
+        err "REMOTE_USER cannot be empty"
+        exit 1
+    fi
+
+    if ! is_valid_port "$REMOTE_PORT"; then
+        err "Invalid REMOTE_PORT: $REMOTE_PORT"
+        exit 1
+    fi
+
+    validate_sshd_defaults
+}
+
+confirm_user_config_loop() {
+    while :; do
+        pause_line
+        say "Configuration summary"
+        say "---------------------"
+        say "Hostname:      $ISH_HOSTNAME"
+        say "Primary user:  $PRIMARY_USER"
+        say "Primary home:  $PRIMARY_HOME"
+        say "Remote target: $REMOTE_USER@$REMOTE_HOST:$REMOTE_PORT"
+        say "SSH defaults:"
+        print_sshd_defaults
+        pause_line
+
+        if [ "$NONINTERACTIVE" = "1" ]; then
+            ok "NONINTERACTIVE=1 detected; proceeding without prompts."
+            return 0
+        fi
+
+        choice="$(prompt_choice "Proceed, edit, or quit? [p/e/q] [p]: " "p")"
+        case "$choice" in
+            p|P|"")
+                return 0
+                ;;
+            e|E)
+                interactive_collect_user_config
+                validate_user_config
+                ;;
+            q|Q)
+                err "Aborted by user."
+                exit 1
+                ;;
+            *)
+                warn "Please choose p, e, or q."
+                ;;
+        esac
+    done
+}
+
+collect_and_validate_config() {
+    populate_derived_defaults
+
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        validate_user_config
+        confirm_user_config_loop
+        return 0
+    fi
+
+    while :; do
+        interactive_collect_user_config
+        validate_user_config
+        confirm_user_config_loop
+        return 0
+    done
+}
+
+pkg_install_alias() {
     label="$1"
     shift
 
@@ -101,35 +715,35 @@ ensure_group_exists() {
     fi
 }
 
-ensure_user() {
-    if id "$RABBIT_USER" >/dev/null 2>&1; then
-        ok "User $RABBIT_USER already exists"
+ensure_primary_user() {
+    if id "$PRIMARY_USER" >/dev/null 2>&1; then
+        ok "User $PRIMARY_USER already exists"
     else
-        info "Creating user $RABBIT_USER"
-        if adduser -D -h "$RABBIT_HOME" -s /bin/sh "$RABBIT_USER" >/dev/null 2>&1; then
-            ok "Created user $RABBIT_USER"
+        info "Creating user $PRIMARY_USER"
+        if adduser -D -h "$PRIMARY_HOME" -s /bin/sh "$PRIMARY_USER" >/dev/null 2>&1; then
+            ok "Created user $PRIMARY_USER"
         else
-            err "Failed to create user $RABBIT_USER"
+            err "Failed to create user $PRIMARY_USER"
             exit 1
         fi
     fi
 
-    mkdir -p "$RABBIT_HOME"
-    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME" 2>/dev/null || true
+    mkdir -p "$PRIMARY_HOME"
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
 
     ensure_group_exists wheel
 
-    if addgroup "$RABBIT_USER" wheel >/dev/null 2>&1; then
-        ok "Ensured $RABBIT_USER is in wheel"
+    if addgroup "$PRIMARY_USER" wheel >/dev/null 2>&1; then
+        ok "Ensured $PRIMARY_USER is in wheel"
     else
-        info "$RABBIT_USER may already be in wheel"
+        info "$PRIMARY_USER may already be in wheel"
     fi
 }
 
 set_passwords() {
     if cmd_exists chpasswd; then
-        if printf 'root:%s\n%s:%s\n' "$ROOT_PASSWORD" "$RABBIT_USER" "$RABBIT_PASSWORD" | chpasswd >/dev/null 2>&1; then
-            ok "Set passwords for root and $RABBIT_USER"
+        if printf 'root:%s\n%s:%s\n' "$ROOT_PASSWORD" "$PRIMARY_USER" "$PRIMARY_PASSWORD" | chpasswd >/dev/null 2>&1; then
+            ok "Set passwords for root and $PRIMARY_USER"
         else
             warn "Failed to set passwords with chpasswd"
         fi
@@ -139,19 +753,19 @@ set_passwords() {
 }
 
 set_hostname_persistent() {
-    printf '%s\n' "$HOSTNAME_WANTED" > /etc/hostname
+    printf '%s\n' "$ISH_HOSTNAME" > /etc/hostname
     ok "Wrote /etc/hostname"
 
     if [ ! -f /etc/hosts ]; then
-        printf '127.0.0.1\tlocalhost %s\n' "$HOSTNAME_WANTED" > /etc/hosts
+        printf '127.0.0.1\tlocalhost %s\n' "$ISH_HOSTNAME" > /etc/hosts
         ok "Created /etc/hosts"
         return 0
     fi
 
-    if grep -q "[[:space:]]$HOSTNAME_WANTED\$" /etc/hosts 2>/dev/null; then
-        ok "/etc/hosts already contains $HOSTNAME_WANTED"
+    if grep -q "[[:space:]]$ISH_HOSTNAME\$" /etc/hosts 2>/dev/null; then
+        ok "/etc/hosts already contains $ISH_HOSTNAME"
     else
-        printf '127.0.0.1\tlocalhost %s\n' "$HOSTNAME_WANTED" >> /etc/hosts
+        printf '127.0.0.1\tlocalhost %s\n' "$ISH_HOSTNAME" >> /etc/hosts
         ok "Updated /etc/hosts"
     fi
 
@@ -203,10 +817,10 @@ write_profiles() {
     chmod 644 /root/.profile
     ok "Wrote /root/.profile"
 
-    printf '%s\n' 'exec zsh -l' > "$RABBIT_HOME/.profile"
-    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.profile" 2>/dev/null || true
-    chmod 644 "$RABBIT_HOME/.profile"
-    ok "Wrote $RABBIT_HOME/.profile"
+    printf '%s\n' 'exec zsh -l' > "$PRIMARY_HOME/.profile"
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.profile" 2>/dev/null || true
+    chmod 644 "$PRIMARY_HOME/.profile"
+    ok "Wrote $PRIMARY_HOME/.profile"
 }
 
 clone_or_update_repo() {
@@ -237,34 +851,34 @@ clone_or_update_repo() {
 }
 
 install_shell_frameworks() {
-    omz_dir="$RABBIT_HOME/.oh-my-zsh"
-    zinit_dir="$RABBIT_HOME/.local/share/zinit/zinit.git"
+    omz_dir="$PRIMARY_HOME/.oh-my-zsh"
+    zinit_dir="$PRIMARY_HOME/.local/share/zinit/zinit.git"
 
-    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$omz_dir" "Oh My Zsh for $RABBIT_USER" || true
-    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$zinit_dir" "Zinit for $RABBIT_USER" || true
+    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$omz_dir" "Oh My Zsh for $PRIMARY_USER" || true
+    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$zinit_dir" "Zinit for $PRIMARY_USER" || true
 
-    mkdir -p "$RABBIT_HOME/.cache/zsh" "$RABBIT_HOME/.local/share" "$RABBIT_HOME/.ssh" "$RABBIT_HOME/.config/zsh"
-    rm -f "$RABBIT_HOME"/.zcompdump* 2>/dev/null || true
+    mkdir -p "$PRIMARY_HOME/.cache/zsh" "$PRIMARY_HOME/.local/share" "$PRIMARY_HOME/.ssh" "$PRIMARY_HOME/.config/zsh"
+    rm -f "$PRIMARY_HOME"/.zcompdump* 2>/dev/null || true
 
-    chown -R "$RABBIT_USER:$RABBIT_USER" \
-        "$RABBIT_HOME/.oh-my-zsh" \
-        "$RABBIT_HOME/.local" \
-        "$RABBIT_HOME/.cache" \
-        "$RABBIT_HOME/.ssh" \
-        "$RABBIT_HOME/.config" 2>/dev/null || true
+    chown -R "$PRIMARY_USER:$PRIMARY_USER" \
+        "$PRIMARY_HOME/.oh-my-zsh" \
+        "$PRIMARY_HOME/.local" \
+        "$PRIMARY_HOME/.cache" \
+        "$PRIMARY_HOME/.ssh" \
+        "$PRIMARY_HOME/.config" 2>/dev/null || true
 
-    chmod 700 "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
 }
 
 install_shared_aliases() {
-    alias_dir="$RABBIT_HOME/.config/zsh"
+    alias_dir="$PRIMARY_HOME/.config/zsh"
     alias_file="$alias_dir/.aliases"
 
     mkdir -p "$alias_dir"
 
     if [ -f ".aliases" ]; then
         cp -f ".aliases" "$alias_file"
-        chown "$RABBIT_USER:$RABBIT_USER" "$alias_file" 2>/dev/null || true
+        chown "$PRIMARY_USER:$PRIMARY_USER" "$alias_file" 2>/dev/null || true
         chmod 644 "$alias_file" 2>/dev/null || true
         ok "Installed shared aliases from local repo copy"
         return 0
@@ -272,7 +886,7 @@ install_shared_aliases() {
 
     if [ -f "$(dirname "$0")/.aliases" ]; then
         cp -f "$(dirname "$0")/.aliases" "$alias_file"
-        chown "$RABBIT_USER:$RABBIT_USER" "$alias_file" 2>/dev/null || true
+        chown "$PRIMARY_USER:$PRIMARY_USER" "$alias_file" 2>/dev/null || true
         chmod 644 "$alias_file" 2>/dev/null || true
         ok "Installed shared aliases from script directory"
         return 0
@@ -280,7 +894,7 @@ install_shared_aliases() {
 
     if cmd_exists curl; then
         if curl -fsSL "$ALIASES_URL" -o "$alias_file"; then
-            chown "$RABBIT_USER:$RABBIT_USER" "$alias_file" 2>/dev/null || true
+            chown "$PRIMARY_USER:$PRIMARY_USER" "$alias_file" 2>/dev/null || true
             chmod 644 "$alias_file" 2>/dev/null || true
             ok "Installed shared aliases from GitHub"
             return 0
@@ -292,25 +906,23 @@ install_shared_aliases() {
 }
 
 write_shared_zshrc() {
-    zshrc="$RABBIT_HOME/.zshrc"
+    zshrc="$PRIMARY_HOME/.zshrc"
 
     cat > "$zshrc" <<EOF
 # Generated by Alpine/iSH setup script
-# Rabbit-owned shared Zsh config; reused by root via symlink
+# Shared Zsh config owned by PRIMARY_USER and reused by root
 
-export SHARED_HOME="$RABBIT_HOME"
+export SHARED_HOME="$PRIMARY_HOME"
 export LANG="\${LANG:-C.UTF-8}"
 export EDITOR="\${EDITOR:-nvim}"
 export VISUAL="\${VISUAL:-nvim}"
 export PAGER="\${PAGER:-less}"
 export LESS="-FRX"
 
-# Keep history per-user even though the rest of the shell stack is shared.
 export HISTFILE="\$HOME/.zsh_history"
 export HISTSIZE=50000
 export SAVEHIST=50000
 
-# Shared shell framework locations always come from rabbit's home.
 export ZSH="\$SHARED_HOME/.oh-my-zsh"
 export ZINIT_HOME="\$SHARED_HOME/.local/share/zinit/zinit.git"
 
@@ -396,19 +1008,19 @@ bindkey -e
 umask 022
 EOF
 
-    chown "$RABBIT_USER:$RABBIT_USER" "$zshrc" 2>/dev/null || true
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$zshrc" 2>/dev/null || true
     chmod 644 "$zshrc"
     ok "Wrote shared Zsh config: $zshrc"
 }
 
 ensure_shared_ssh_keypair() {
-    key="$RABBIT_HOME/.ssh/id_ed25519"
+    key="$PRIMARY_HOME/.ssh/id_ed25519"
 
-    mkdir -p "$RABBIT_HOME/.ssh"
+    mkdir -p "$PRIMARY_HOME/.ssh"
     if [ ! -f "$key" ]; then
         if cmd_exists ssh-keygen; then
             if ssh-keygen -q -t ed25519 -N '' -f "$key" >/dev/null 2>&1; then
-                ok "Generated shared SSH key for $RABBIT_USER"
+                ok "Generated shared SSH key for $PRIMARY_USER"
             else
                 warn "Failed to generate shared SSH key"
             fi
@@ -419,45 +1031,45 @@ ensure_shared_ssh_keypair() {
         ok "Shared SSH key already exists"
     fi
 
-    chown -R "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
-    chmod 700 "$RABBIT_HOME/.ssh" 2>/dev/null || true
-    find "$RABBIT_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
-    [ -f "$RABBIT_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$RABBIT_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
+    chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    find "$PRIMARY_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+    [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$PRIMARY_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
 }
 
 write_shared_ssh_config() {
-    cfg="$RABBIT_HOME/.ssh/config"
+    cfg="$PRIMARY_HOME/.ssh/config"
 
-    mkdir -p "$RABBIT_HOME/.ssh"
+    mkdir -p "$PRIMARY_HOME/.ssh"
     cat > "$cfg" <<EOF
 Host *
     ServerAliveInterval 30
     ServerAliveCountMax 3
     TCPKeepAlive yes
 
-Host cachyos
-    HostName $CACHYOS_HOST
-    User $CACHYOS_USER
-    Port $CACHYOS_PORT
+Host remote
+    HostName $REMOTE_HOST
+    User $REMOTE_USER
+    Port $REMOTE_PORT
     PreferredAuthentications publickey,password
     PubkeyAuthentication yes
     IdentitiesOnly yes
-    IdentityFile $RABBIT_HOME/.ssh/id_ed25519
+    IdentityFile $PRIMARY_HOME/.ssh/id_ed25519
 
-Host cachyos-tunnel
-    HostName $CACHYOS_HOST
-    User $CACHYOS_USER
-    Port $CACHYOS_PORT
+Host remote-tunnel
+    HostName $REMOTE_HOST
+    User $REMOTE_USER
+    Port $REMOTE_PORT
     PreferredAuthentications publickey,password
     PubkeyAuthentication yes
     IdentitiesOnly yes
-    IdentityFile $RABBIT_HOME/.ssh/id_ed25519
+    IdentityFile $PRIMARY_HOME/.ssh/id_ed25519
     DynamicForward 1080
     Compression yes
     ExitOnForwardFailure yes
 EOF
     chmod 600 "$cfg"
-    chown -R "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
     ok "Wrote shared SSH client config"
 }
 
@@ -472,25 +1084,23 @@ link_path_force() {
     ln -s "$src" "$dst"
 }
 
-link_root_to_rabbit_assets() {
+link_root_to_shared_assets() {
     mkdir -p /root /root/.config /root/.local/share /root/.cache /root/.ssh
 
-    # Shared shell stack
-    link_path_force "$RABBIT_HOME/.zshrc" /root/.zshrc
-    link_path_force "$RABBIT_HOME/.oh-my-zsh" /root/.oh-my-zsh
+    link_path_force "$PRIMARY_HOME/.zshrc" /root/.zshrc
+    link_path_force "$PRIMARY_HOME/.oh-my-zsh" /root/.oh-my-zsh
     mkdir -p /root/.local/share
-    link_path_force "$RABBIT_HOME/.local/share/zinit" /root/.local/share/zinit
+    link_path_force "$PRIMARY_HOME/.local/share/zinit" /root/.local/share/zinit
     mkdir -p /root/.config
-    link_path_force "$RABBIT_HOME/.config/zsh" /root/.config/zsh
+    link_path_force "$PRIMARY_HOME/.config/zsh" /root/.config/zsh
 
-    # Shared SSH assets
-    link_path_force "$RABBIT_HOME/.ssh/config" /root/.ssh/config
-    link_path_force "$RABBIT_HOME/.ssh/id_ed25519" /root/.ssh/id_ed25519
-    link_path_force "$RABBIT_HOME/.ssh/id_ed25519.pub" /root/.ssh/id_ed25519.pub
+    link_path_force "$PRIMARY_HOME/.ssh/config" /root/.ssh/config
+    link_path_force "$PRIMARY_HOME/.ssh/id_ed25519" /root/.ssh/id_ed25519
+    link_path_force "$PRIMARY_HOME/.ssh/id_ed25519.pub" /root/.ssh/id_ed25519.pub
 
     chmod 700 /root/.ssh 2>/dev/null || true
 
-    ok "Linked root to rabbit-owned shared shell and SSH assets"
+    ok "Linked root to shared shell and SSH assets in $PRIMARY_HOME"
 }
 
 configure_sudo() {
@@ -561,6 +1171,20 @@ ensure_sshd_config_key() {
     ok "Ensured sshd_config: $key $value"
 }
 
+apply_sshd_defaults() {
+    oldifs="$IFS"
+    IFS=';'
+    set -- $SSHD_DEFAULTS
+    IFS="$oldifs"
+
+    for pair in "$@"; do
+        [ -n "$pair" ] || continue
+        key=${pair%%=*}
+        value=${pair#*=}
+        ensure_sshd_config_key "$key" "$value"
+    done
+}
+
 configure_openrc() {
     if ! cmd_exists rc-update; then
         warn "OpenRC not available; skipping rc-update"
@@ -600,49 +1224,49 @@ start_sshd_safely() {
 }
 
 fix_permissions() {
-    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME" 2>/dev/null || true
-    chmod 755 "$RABBIT_HOME" 2>/dev/null || true
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
+    chmod 755 "$PRIMARY_HOME" 2>/dev/null || true
 
     for d in \
-        "$RABBIT_HOME/.oh-my-zsh" \
-        "$RABBIT_HOME/.local" \
-        "$RABBIT_HOME/.cache" \
-        "$RABBIT_HOME/.config"
+        "$PRIMARY_HOME/.oh-my-zsh" \
+        "$PRIMARY_HOME/.local" \
+        "$PRIMARY_HOME/.cache" \
+        "$PRIMARY_HOME/.config"
     do
         if [ -e "$d" ]; then
-            chown -R "$RABBIT_USER:$RABBIT_USER" "$d" 2>/dev/null || true
+            chown -R "$PRIMARY_USER:$PRIMARY_USER" "$d" 2>/dev/null || true
             chmod -R go-w "$d" 2>/dev/null || true
         fi
     done
 
-    if [ -d "$RABBIT_HOME/.ssh" ]; then
-        chown -R "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
-        chmod 700 "$RABBIT_HOME/.ssh" 2>/dev/null || true
-        find "$RABBIT_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
-        [ -f "$RABBIT_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$RABBIT_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
+    if [ -d "$PRIMARY_HOME/.ssh" ]; then
+        chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+        chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+        find "$PRIMARY_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+        [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$PRIMARY_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
     fi
 
     chown root:root /root 2>/dev/null || true
     chmod 700 /root 2>/dev/null || true
     chmod 700 /root/.ssh 2>/dev/null || true
 
-    ok "Fixed permissions for shared rabbit assets and /root links"
+    ok "Fixed permissions for shared assets and /root links"
 }
 
 prime_zsh_for_user() {
-    owner_user="$1"
+    target_user="$1"
 
-    if [ "$owner_user" = "root" ]; then
+    if [ "$target_user" = "root" ]; then
         if zsh -ic 'exit 0' >/dev/null 2>&1; then
             ok "Primed Zsh for root"
         else
             warn "Could not fully prime Zsh for root on first pass"
         fi
     else
-        if su - "$owner_user" -c 'zsh -ic "exit 0"' >/dev/null 2>&1; then
-            ok "Primed Zsh for $owner_user"
+        if su - "$target_user" -c 'zsh -ic "exit 0"' >/dev/null 2>&1; then
+            ok "Primed Zsh for $target_user"
         else
-            warn "Could not fully prime Zsh for $owner_user on first pass"
+            warn "Could not fully prime Zsh for $target_user on first pass"
         fi
     fi
 }
@@ -651,16 +1275,16 @@ post_run_self_test() {
     say
     say "Post-run self-test:"
 
-    if [ -L /root/.zshrc ] && [ "$(readlink /root/.zshrc)" = "$RABBIT_HOME/.zshrc" ]; then
-        say "  [OK] root .zshrc symlinked to rabbit"
+    if [ -L /root/.zshrc ] && [ "$(readlink /root/.zshrc)" = "$PRIMARY_HOME/.zshrc" ]; then
+        say "  [OK] root .zshrc symlinked to shared config"
     else
-        say "  [WARN] root .zshrc is not symlinked to rabbit"
+        say "  [WARN] root .zshrc is not symlinked to shared config"
     fi
 
-    if [ -L /root/.ssh/config ] && [ "$(readlink /root/.ssh/config)" = "$RABBIT_HOME/.ssh/config" ]; then
-        say "  [OK] root SSH config symlinked to rabbit"
+    if [ -L /root/.ssh/config ] && [ "$(readlink /root/.ssh/config)" = "$PRIMARY_HOME/.ssh/config" ]; then
+        say "  [OK] root SSH config symlinked to shared config"
     else
-        say "  [WARN] root SSH config is not symlinked to rabbit"
+        say "  [WARN] root SSH config is not symlinked to shared config"
     fi
 
     if zsh -lc 'exit 0' >/dev/null 2>&1; then
@@ -669,10 +1293,10 @@ post_run_self_test() {
         say "  [WARN] root zsh startup"
     fi
 
-    if su - "$RABBIT_USER" -c 'zsh -lc "exit 0"' >/dev/null 2>&1; then
-        say "  [OK] rabbit zsh startup"
+    if su - "$PRIMARY_USER" -c 'zsh -lc "exit 0"' >/dev/null 2>&1; then
+        say "  [OK] $PRIMARY_USER zsh startup"
     else
-        say "  [WARN] rabbit zsh startup"
+        say "  [WARN] $PRIMARY_USER zsh startup"
     fi
 
     if ssh -G 127.0.0.1 >/dev/null 2>&1; then
@@ -687,7 +1311,7 @@ post_run_self_test() {
         say "  [WARN] SSH server config parse"
     fi
 
-    if su - "$RABBIT_USER" -c 'sudo -l' >/dev/null 2>&1; then
+    if su - "$PRIMARY_USER" -c 'sudo -l' >/dev/null 2>&1; then
         say "  [OK] sudo check"
     else
         say "  [INFO] sudo check may require interactive auth"
@@ -696,6 +1320,7 @@ post_run_self_test() {
 
 main() {
     require_root
+    collect_and_validate_config
 
     info "Updating apk indexes"
     if apk update >/dev/null 2>&1; then
@@ -705,65 +1330,64 @@ main() {
     fi
 
     info "Installing requested packages"
-    install_pkg_alias "git" git
-    install_pkg_alias "curl" curl
-    install_pkg_alias "wget" wget
-    install_pkg_alias "bat" bat
-    install_pkg_alias "fzf" fzf
-    install_pkg_alias "nano" nano
-    install_pkg_alias "neovim" neovim
-    install_pkg_alias "neofetch" neofetch
-    install_pkg_alias "OpenSSH server" openssh-server openssh
-    install_pkg_alias "OpenSSH client" openssh-client-default openssh-client openssh
-    install_pkg_alias "ncurses" ncurses
-    install_pkg_alias "less" less
-    install_pkg_alias "zoxide" zoxide
-    install_pkg_alias "tmux" tmux
-    install_pkg_alias "htop" htop
-    install_pkg_alias "ripgrep" ripgrep
-    install_pkg_alias "fd" fd
-    install_pkg_alias "lazygit" lazygit
-    install_pkg_alias "tree" tree
-    install_pkg_alias "unzip" unzip
-    install_pkg_alias "zip" zip
-    install_pkg_alias "grep" grep
-    install_pkg_alias "sed" sed
-    install_pkg_alias "coreutils" coreutils
-    install_pkg_alias "util-linux" util-linux
-    install_pkg_alias "linux headers/tools" linux-headers linux-lts-headers linux-edge-headers
-    install_pkg_alias "diffutils" diffutils
-    install_pkg_alias "findutils" findutils
-    install_pkg_alias "file" file
-    install_pkg_alias "patch" patch
-    install_pkg_alias "bash" bash
-    install_pkg_alias "zsh" zsh
-    install_pkg_alias "sudo" sudo
-    install_pkg_alias "doas" doas
-    install_pkg_alias "shadow" shadow
-    install_pkg_alias "openrc" openrc
-    install_pkg_alias "iptables-openrc" iptables-openrc
-    install_pkg_alias "util-linux-openrc" util-linux-openrc
-    install_pkg_alias "exa" exa
+    pkg_install_alias "git" git
+    pkg_install_alias "curl" curl
+    pkg_install_alias "wget" wget
+    pkg_install_alias "bat" bat
+    pkg_install_alias "fzf" fzf
+    pkg_install_alias "nano" nano
+    pkg_install_alias "neovim" neovim
+    pkg_install_alias "neofetch" neofetch
+    pkg_install_alias "OpenSSH server" openssh-server openssh
+    pkg_install_alias "OpenSSH client" openssh-client-default openssh-client openssh
+    pkg_install_alias "ncurses" ncurses
+    pkg_install_alias "less" less
+    pkg_install_alias "zoxide" zoxide
+    pkg_install_alias "tmux" tmux
+    pkg_install_alias "htop" htop
+    pkg_install_alias "ripgrep" ripgrep
+    pkg_install_alias "fd" fd
+    pkg_install_alias "lazygit" lazygit
+    pkg_install_alias "tree" tree
+    pkg_install_alias "unzip" unzip
+    pkg_install_alias "zip" zip
+    pkg_install_alias "grep" grep
+    pkg_install_alias "sed" sed
+    pkg_install_alias "coreutils" coreutils
+    pkg_install_alias "util-linux" util-linux
+    pkg_install_alias "linux headers/tools" linux-headers linux-lts-headers linux-edge-headers
+    pkg_install_alias "diffutils" diffutils
+    pkg_install_alias "findutils" findutils
+    pkg_install_alias "file" file
+    pkg_install_alias "patch" patch
+    pkg_install_alias "bash" bash
+    pkg_install_alias "zsh" zsh
+    pkg_install_alias "sudo" sudo
+    pkg_install_alias "doas" doas
+    pkg_install_alias "shadow" shadow
+    pkg_install_alias "openrc" openrc
+    pkg_install_alias "iptables-openrc" iptables-openrc
+    pkg_install_alias "util-linux-openrc" util-linux-openrc
+    pkg_install_alias "exa" exa
 
     set_hostname_persistent
-    ensure_user
+    ensure_primary_user
     set_passwords
 
     if cmd_exists zsh; then
         set_shell_in_passwd root "$(command -v zsh)"
-        set_shell_in_passwd "$RABBIT_USER" "$(command -v zsh)"
+        set_shell_in_passwd "$PRIMARY_USER" "$(command -v zsh)"
     else
         warn "zsh not installed; cannot set login shells"
     fi
 
     write_profiles
-
     install_shell_frameworks
     install_shared_aliases
     write_shared_zshrc
     ensure_shared_ssh_keypair
     write_shared_ssh_config
-    link_root_to_rabbit_assets
+    link_root_to_shared_assets
 
     if cmd_exists sudo; then
         configure_sudo
@@ -778,24 +1402,19 @@ main() {
     fi
 
     info "Configuring OpenSSH server"
-    mkdir -p /etc/ssh /root/.ssh "$RABBIT_HOME/.ssh"
-    chmod 700 /root/.ssh "$RABBIT_HOME/.ssh" 2>/dev/null || true
-    chown "$RABBIT_USER:$RABBIT_USER" "$RABBIT_HOME/.ssh" 2>/dev/null || true
+    mkdir -p /etc/ssh /root/.ssh "$PRIMARY_HOME/.ssh"
+    chmod 700 /root/.ssh "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
 
     generate_host_keys_if_needed
-    ensure_sshd_config_key "AllowTcpForwarding" "yes"
-    ensure_sshd_config_key "PermitRootLogin" "yes"
-    ensure_sshd_config_key "PasswordAuthentication" "yes"
-    ensure_sshd_config_key "PubkeyAuthentication" "yes"
-    ensure_sshd_config_key "PermitEmptyPasswords" "no"
+    apply_sshd_defaults
 
     configure_openrc
     start_sshd_safely
-
     fix_permissions
 
     prime_zsh_for_user root
-    prime_zsh_for_user "$RABBIT_USER"
+    prime_zsh_for_user "$PRIMARY_USER"
 
     say
     say "============================================================"
@@ -816,35 +1435,35 @@ main() {
         say "  (none)"
     fi
     say
-    say "Shared shell owner:"
-    say "  $RABBIT_USER ($RABBIT_HOME)"
+    say "Primary user:"
+    say "  $PRIMARY_USER"
+    say "  $PRIMARY_HOME"
     say
     say "Shared shell assets:"
-    say "  $RABBIT_HOME/.zshrc"
-    say "  $RABBIT_HOME/.config/zsh/.aliases"
-    say "  $RABBIT_HOME/.oh-my-zsh"
-    say "  $RABBIT_HOME/.local/share/zinit"
+    say "  $PRIMARY_HOME/.zshrc"
+    say "  $PRIMARY_HOME/.config/zsh/.aliases"
+    say "  $PRIMARY_HOME/.oh-my-zsh"
+    say "  $PRIMARY_HOME/.local/share/zinit"
     say
     say "Shared SSH assets:"
-    say "  $RABBIT_HOME/.ssh/config"
-    say "  $RABBIT_HOME/.ssh/id_ed25519.pub"
+    say "  $PRIMARY_HOME/.ssh/config"
+    say "  $PRIMARY_HOME/.ssh/id_ed25519.pub"
     say
-    say "Root reuses rabbit assets via symlinks under /root"
+    say "Root reuses shared assets via symlinks under /root"
     say
     say "Privilege escalation:"
     say "  sudo apk update"
     say "  doas apk update"
     say
     say "SSH client aliases:"
-    say "  ssh cachyos"
-    say "  ssh -N cachyos-tunnel"
+    say "  ssh remote"
+    say "  ssh -N remote-tunnel"
     say
-    say "SSH server config ensured in /etc/ssh/sshd_config:"
-    say "  AllowTcpForwarding yes"
-    say "  PermitRootLogin yes"
-    say "  PasswordAuthentication yes"
-    say "  PubkeyAuthentication yes"
-    say "  PermitEmptyPasswords no"
+    say "Configured remote target:"
+    say "  $REMOTE_USER@$REMOTE_HOST:$REMOTE_PORT"
+    say
+    say "Applied SSH server defaults:"
+    print_sshd_defaults
     say
     say "OpenRC:"
     say "  sshd will be added where applicable"
@@ -856,15 +1475,6 @@ main() {
     say "Also remember:"
     say "  - Allow location access in iSH"
     say "  - Enable keep screen turned on in iSH settings"
-    say
-    say "Linux client connection over iPhone Personal Hotspot:"
-    say "  1. Connect Linux to the iPhone hotspot."
-    say "  2. Find the gateway with:"
-    say "     ip route show default"
-    say "  3. Start the SOCKS proxy tunnel with:"
-    say "     ssh -D 1080 -N -C root@172.20.10.1"
-    say "  4. The terminal appearing to hang is expected."
-    say "  5. Linux does not have true universal global proxying and some apps need separate proxy configuration."
 
     post_run_self_test
 }
