@@ -121,3 +121,7 @@ ROOT_PASSWORD="insert-password"
 REMOTE_HOST="1.1.1.1"
 REMOTE_USER="insert_username"
 REMOTE_PORT="22"
+
+## To Run Script
+sh -c "$(curl -fsSL https://raw.githu
+busercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh)"
