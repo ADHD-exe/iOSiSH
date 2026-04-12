@@ -14,10 +14,11 @@ ROOT_PASSWORD_DEFAULT=""
 REMOTE_HOST_DEFAULT=""
 REMOTE_USER_DEFAULT=""
 REMOTE_PORT_DEFAULT="22"
+REMOTE_TUNNEL_PORT_DEFAULT="1080"
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
 # Semicolon-separated key=value pairs for sshd_config management
-SSHD_DEFAULTS_DEFAULT="AllowTcpForwarding=yes;PermitRootLogin=no;PasswordAuthentication=no;PubkeyAuthentication=yes;PermitEmptyPasswords=no"
+SSHD_DEFAULTS_DEFAULT="AllowTcpForwarding=yes;PermitRootLogin=no;PasswordAuthentication=no;PubkeyAuthentication=yes;PermitEmptyPasswords=no;GatewayPorts=yes;Compression=no;PermitTTY=yes;PermitTunnel=yes"
 SSHD_DEFAULTS="${SSHD_DEFAULTS:-$SSHD_DEFAULTS_DEFAULT}"
 
 ALIASES_URL="https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/.aliases"
@@ -30,9 +31,13 @@ ROOT_PASSWORD="${ROOT_PASSWORD:-$ROOT_PASSWORD_DEFAULT}"
 REMOTE_HOST="${REMOTE_HOST:-$REMOTE_HOST_DEFAULT}"
 REMOTE_USER="${REMOTE_USER:-$REMOTE_USER_DEFAULT}"
 REMOTE_PORT="${REMOTE_PORT:-$REMOTE_PORT_DEFAULT}"
+REMOTE_TUNNEL_PORT="${REMOTE_TUNNEL_PORT:-$REMOTE_TUNNEL_PORT_DEFAULT}"
 
 INSTALLED_PKGS=""
 SKIPPED_PKGS=""
+DOCS_INSTALLED_PKGS=""
+DOCS_SKIPPED_PKGS=""
+SEEN_DOC_PKGS=""
 
 say() { printf '%s\n' "$*"; }
 info() { printf '[INFO] %s\n' "$*"; }
@@ -496,6 +501,9 @@ interactive_collect_user_config() {
     pause_line
     say "Interactive setup"
     say "Press Enter to accept a default when one is shown."
+    say "This script will create:"
+    say "  - ssh remote          (normal remote login)"
+    say "  - ssh -N remote-tunnel (SOCKS proxy on localhost:$REMOTE_TUNNEL_PORT)"
     pause_line
 
     while :; do
@@ -532,7 +540,7 @@ interactive_collect_user_config() {
     ROOT_PASSWORD="$(prompt_password_confirmed "root")"
 
     while :; do
-        REMOTE_HOST="$(prompt_text "What remote SSH host should be configured" "$REMOTE_HOST")"
+        REMOTE_HOST="$(prompt_text "What remote SSH host should be used for the generated client config" "$REMOTE_HOST")"
         if require_nonempty "$REMOTE_HOST"; then
             break
         fi
@@ -540,7 +548,7 @@ interactive_collect_user_config() {
     done
 
     while :; do
-        REMOTE_USER="$(prompt_text "What remote SSH username should be used" "$REMOTE_USER")"
+        REMOTE_USER="$(prompt_text "What remote SSH username should be used for ssh remote and remote-tunnel" "$REMOTE_USER")"
         if require_nonempty "$REMOTE_USER"; then
             break
         fi
@@ -548,11 +556,19 @@ interactive_collect_user_config() {
     done
 
     while :; do
-        REMOTE_PORT="$(prompt_text "What remote SSH port should be used" "$REMOTE_PORT")"
+        REMOTE_PORT="$(prompt_text "What remote SSH port should be used for ssh remote and remote-tunnel" "$REMOTE_PORT")"
         if is_valid_port "$REMOTE_PORT"; then
             break
         fi
         warn "Remote SSH port must be a number from 1 to 65535."
+    done
+
+    while :; do
+        REMOTE_TUNNEL_PORT="$(prompt_text "What local SOCKS port should ssh -N remote-tunnel listen on" "$REMOTE_TUNNEL_PORT")"
+        if is_valid_port "$REMOTE_TUNNEL_PORT"; then
+            break
+        fi
+        warn "Local SOCKS port must be a number from 1 to 65535."
     done
 
     interactive_edit_sshd_defaults
@@ -601,6 +617,11 @@ validate_user_config() {
         exit 1
     fi
 
+    if ! is_valid_port "$REMOTE_TUNNEL_PORT"; then
+        err "Invalid REMOTE_TUNNEL_PORT: $REMOTE_TUNNEL_PORT"
+        exit 1
+    fi
+
     validate_sshd_defaults
 }
 
@@ -609,10 +630,11 @@ confirm_user_config_loop() {
         pause_line
         say "Configuration summary"
         say "---------------------"
-        say "Hostname:      $ISH_HOSTNAME"
-        say "Primary user:  $PRIMARY_USER"
-        say "Primary home:  $PRIMARY_HOME"
-        say "Remote target: $REMOTE_USER@$REMOTE_HOST:$REMOTE_PORT"
+        say "Hostname:          $ISH_HOSTNAME"
+        say "Primary user:      $PRIMARY_USER"
+        say "Primary home:      $PRIMARY_HOME"
+        say "SSH remote:        $REMOTE_USER@$REMOTE_HOST:$REMOTE_PORT"
+        say "SOCKS tunnel:      localhost:$REMOTE_TUNNEL_PORT via ssh -N remote-tunnel"
         say "SSH defaults:"
         print_sshd_defaults
         pause_line
@@ -694,6 +716,157 @@ pkg_install_alias() {
 
     SKIPPED_PKGS=$(append_csv "$SKIPPED_PKGS" "$label")
     return 0
+}
+
+remember_doc_pkg() {
+    pkg="$1"
+    [ -n "$pkg" ] || return 0
+    case ",$SEEN_DOC_PKGS," in
+        *,"$pkg",*) return 0 ;;
+    esac
+    if [ -n "$SEEN_DOC_PKGS" ]; then
+        SEEN_DOC_PKGS="${SEEN_DOC_PKGS},${pkg}"
+    else
+        SEEN_DOC_PKGS="$pkg"
+    fi
+}
+
+install_doc_package() {
+    doc_pkg="$1"
+    source_pkg="$2"
+
+    if [ -z "$doc_pkg" ]; then
+        return 1
+    fi
+
+    if pkg_installed "$doc_pkg"; then
+        info "Docs for $source_pkg: already installed as $doc_pkg"
+        DOCS_INSTALLED_PKGS=$(append_csv "$DOCS_INSTALLED_PKGS" "$source_pkg -> $doc_pkg")
+        return 0
+    fi
+
+    if ! pkg_exists "$doc_pkg"; then
+        return 1
+    fi
+
+    info "Docs for $source_pkg: installing $doc_pkg"
+    if apk add --no-cache "$doc_pkg" >/dev/null 2>&1; then
+        ok "Docs for $source_pkg: installed $doc_pkg"
+        DOCS_INSTALLED_PKGS=$(append_csv "$DOCS_INSTALLED_PKGS" "$source_pkg -> $doc_pkg")
+        return 0
+    fi
+
+    warn "Docs for $source_pkg: failed to install $doc_pkg"
+    return 1
+}
+
+install_docs_for_pkg() {
+    pkg="$1"
+    [ -n "$pkg" ] || return 0
+
+    remember_doc_pkg "$pkg"
+
+    case "$pkg" in
+        *-doc|man-pages|mandoc|docs)
+            return 0
+            ;;
+    esac
+
+    case "$pkg" in
+        openssh|openssh-server|openssh-client|openssh-client-default)
+            install_doc_package "openssh-doc" "$pkg" && return 0
+            ;;
+        python3|py3-pip|py3-setuptools)
+            install_doc_package "python3-doc" "$pkg" && return 0
+            ;;
+        nodejs|node.js|npm)
+            install_doc_package "nodejs-doc" "$pkg" && return 0
+            ;;
+        util-linux|util-linux-openrc)
+            install_doc_package "util-linux-doc" "$pkg" && return 0
+            ;;
+        openrc|iptables-openrc)
+            install_doc_package "openrc-doc" "$pkg" && return 0
+            ;;
+        zsh)
+            install_doc_package "zsh-doc" "$pkg" && return 0
+            ;;
+        bash)
+            install_doc_package "bash-doc" "$pkg" && return 0
+            ;;
+        less)
+            install_doc_package "less-doc" "$pkg" && return 0
+            ;;
+        neovim)
+            install_doc_package "neovim-doc" "$pkg" && return 0
+            ;;
+        git)
+            install_doc_package "git-doc" "$pkg" && return 0
+            ;;
+        tmux)
+            install_doc_package "tmux-doc" "$pkg" && return 0
+            ;;
+        curl)
+            install_doc_package "curl-doc" "$pkg" && return 0
+            ;;
+        wget)
+            install_doc_package "wget-doc" "$pkg" && return 0
+            ;;
+        nano)
+            install_doc_package "nano-doc" "$pkg" && return 0
+            ;;
+        grep)
+            install_doc_package "grep-doc" "$pkg" && return 0
+            ;;
+        sed)
+            install_doc_package "sed-doc" "$pkg" && return 0
+            ;;
+        coreutils)
+            install_doc_package "coreutils-doc" "$pkg" && return 0
+            ;;
+        findutils)
+            install_doc_package "findutils-doc" "$pkg" && return 0
+            ;;
+        diffutils)
+            install_doc_package "diffutils-doc" "$pkg" && return 0
+            ;;
+        patch)
+            install_doc_package "patch-doc" "$pkg" && return 0
+            ;;
+        file)
+            install_doc_package "file-doc" "$pkg" && return 0
+            ;;
+        jq)
+            install_doc_package "jq-doc" "$pkg" && return 0
+            ;;
+        bind-tools)
+            install_doc_package "bind-doc" "$pkg" && return 0
+            ;;
+        *)
+            install_doc_package "${pkg}-doc" "$pkg" && return 0
+            ;;
+    esac
+
+    DOCS_SKIPPED_PKGS=$(append_csv "$DOCS_SKIPPED_PKGS" "$pkg")
+    info "Docs for $pkg: no matching doc package found"
+    return 0
+}
+
+install_docs_for_installed_packages() {
+    info "Installing manpages and docs for requested and already installed packages"
+
+    install_doc_package "mandoc" "manual reader" || true
+    install_doc_package "man-pages" "system manpages" || true
+    install_doc_package "less-doc" "less" || true
+
+    if ! cmd_exists apk; then
+        warn "apk not available; cannot inspect installed packages for docs"
+        return 0
+    fi
+
+    for pkg in $(apk info 2>/dev/null); do
+        install_docs_for_pkg "$pkg"
+    done
 }
 
 require_root() {
@@ -1074,8 +1247,8 @@ Host remote-tunnel
     PubkeyAuthentication yes
     IdentitiesOnly yes
     IdentityFile $PRIMARY_HOME/.ssh/id_ed25519
-    DynamicForward 1080
-    Compression yes
+    DynamicForward $REMOTE_TUNNEL_PORT
+    Compression no
     ExitOnForwardFailure yes
 EOF
     chmod 600 "$cfg"
@@ -1331,6 +1504,12 @@ post_run_self_test() {
     else
         say "  [INFO] sudo check may require interactive auth"
     fi
+
+    if [ -n "$REMOTE_TUNNEL_PORT" ] && ssh -G remote-tunnel >/dev/null 2>&1; then
+        say "  [OK] remote-tunnel client profile parse"
+    else
+        say "  [WARN] remote-tunnel client profile parse"
+    fi
 }
 
 main() {
@@ -1383,7 +1562,38 @@ main() {
     pkg_install_alias "openrc" openrc
     pkg_install_alias "iptables-openrc" iptables-openrc
     pkg_install_alias "util-linux-openrc" util-linux-openrc
-    pkg_install_alias "exa" exa
+    pkg_install_alias "nmap" nmap
+    pkg_install_alias "python3" python3
+    pkg_install_alias "py3-pip" py3-pip pip
+    pkg_install_alias "py3-setuptools" py3-setuptools
+    pkg_install_alias "nikto" nikto
+    pkg_install_alias "aircrack-ng" aircrack-ng
+    pkg_install_alias "sqlmap" sqlmap
+    pkg_install_alias "node.js" nodejs node.js
+    pkg_install_alias "transmission-cli" transmission-cli
+    pkg_install_alias "transmission-daemon" transmission-daemon
+    pkg_install_alias "masscan" masscan
+    pkg_install_alias "whois" whois
+    pkg_install_alias "bind-tools" bind-tools
+    pkg_install_alias "socat" socat
+    pkg_install_alias "transmission" transmission
+    pkg_install_alias "dovecot" dovecot
+    pkg_install_alias "strongswan" strongswan
+    pkg_install_alias "snort" snort
+    pkg_install_alias "fwsnort" fwsnort
+    pkg_install_alias "jwhois" jwhois
+    pkg_install_alias "go" go
+    pkg_install_alias "rust" rust
+    pkg_install_alias "npm" npm
+    pkg_install_alias "gcc" gcc
+    pkg_install_alias "jq" jq
+    pkg_install_alias "shellcheck" shellcheck
+    pkg_install_alias "abuild" abuild
+    pkg_install_alias "man-pages" man-pages
+    pkg_install_alias "mandoc" mandoc
+    pkg_install_alias "less-doc" less-doc
+
+    install_docs_for_installed_packages
 
     set_hostname_persistent
     ensure_primary_user
@@ -1450,6 +1660,20 @@ main() {
         say "  (none)"
     fi
     say
+    say "Installed doc packages:"
+    if [ -n "$DOCS_INSTALLED_PKGS" ]; then
+        say "  $DOCS_INSTALLED_PKGS"
+    else
+        say "  (none)"
+    fi
+    say
+    say "Doc packages not found:"
+    if [ -n "$DOCS_SKIPPED_PKGS" ]; then
+        say "  $DOCS_SKIPPED_PKGS"
+    else
+        say "  (none)"
+    fi
+    say
     say "Primary user:"
     say "  $PRIMARY_USER"
     say "  $PRIMARY_HOME"
@@ -1476,6 +1700,7 @@ main() {
     say
     say "Configured remote target:"
     say "  $REMOTE_USER@$REMOTE_HOST:$REMOTE_PORT"
+    say "  SOCKS proxy listens on localhost:$REMOTE_TUNNEL_PORT"
     say
     say "Applied SSH server defaults:"
     print_sshd_defaults

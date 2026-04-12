@@ -14,6 +14,7 @@ This repo sets up a practical shell-first environment on iSH with:
 - OpenRC best-effort service registration
 - iSH-safe aliases
 - persistent hostname handling for the iSH hostname limitation
+- automatic installation of available **manpages/docs** for packages already on the system and packages installed by the script
 
 ---
 
@@ -41,6 +42,10 @@ It is intended to be run as **root** inside Alpine on iSH.
   - `fd`
   - `fzf`
   - `neovim`
+- automatically try to install:
+  - `mandoc`
+  - `man-pages`
+  - matching `*-doc` packages where Alpine provides them
 - prompt you for:
   - iSH hostname
   - primary username
@@ -50,6 +55,7 @@ It is intended to be run as **root** inside Alpine on iSH.
   - remote SSH host
   - remote SSH username
   - remote SSH port
+  - local SOCKS tunnel port for `remote-tunnel`
 - confirm passwords before applying them
 - let you review and re-edit the full configuration summary before install continues
 - create or configure the primary user
@@ -64,6 +70,9 @@ It is intended to be run as **root** inside Alpine on iSH.
 - generate a shared SSH keypair owned by the primary user
 - write a shared SSH client config at:
   - `PRIMARY_HOME/.ssh/config`
+- create these SSH client entries:
+  - `ssh remote`
+  - `ssh -N remote-tunnel`
 - symlink root to the shared shell and SSH assets
 - write a persistent hostname to:
   - `/etc/hostname`
@@ -121,7 +130,36 @@ ROOT_PASSWORD="insert-password"
 REMOTE_HOST="1.1.1.1"
 REMOTE_USER="insert_username"
 REMOTE_PORT="22"
+REMOTE_TUNNEL_PORT="1080"
 
-## To Run Script
-sh -c "$(curl -fsSL https://raw.githu
-busercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh)"
+# To run script
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh)"
+```
+
+---
+
+## Generated SSH client profiles
+
+The script writes a shared SSH client config with these entries:
+
+### `remote`
+
+Standard SSH login to the configured remote host:
+
+```sh
+ssh remote
+```
+
+### `remote-tunnel`
+
+SOCKS proxy profile using `DynamicForward` on the chosen local port:
+
+```sh
+ssh -N remote-tunnel
+```
+
+By default the SOCKS listener is:
+
+```text
+localhost:1080
+```
