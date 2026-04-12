@@ -106,3 +106,44 @@ else
     alias ll='ls -lah --color=auto'
     command -v tree >/dev/null 2>&1 && alias lt='tree -L 2'
 fi
+
+alias ll='ls -lah'
+alias la='ls -A'
+alias l='ls -CF'
+alias grep='grep --color=auto'
+alias df='df -h'
+alias du='du -h'
+alias cls='clear'
+alias v='nvim'
+alias svim='sudo nvim'
+alias t='tmux'
+alias sshhome='ssh ssh-home'
+
+apkaddplus() {
+    if [ "$#" -eq 0 ]; then
+        echo "usage: apkaddplus <package> [package...]"
+        return 1
+    fi
+
+    command apk add "$@" || return $?
+
+    local pkg
+    for pkg in "$@"; do
+        case "$pkg" in
+            -*)
+                continue
+                ;;
+        esac
+
+        if command apk search -qe "${pkg}-doc" >/dev/null 2>&1; then
+            echo "[doc] installing ${pkg}-doc"
+            command apk add "${pkg}-doc"
+        fi
+
+        if command apk search -qe "${pkg}-zsh-completion" >/dev/null 2>&1; then
+            echo "[zsh] installing ${pkg}-zsh-completion"
+            command apk add "${pkg}-zsh-completion"
+        fi
+    done
+}
+alias add='app'
