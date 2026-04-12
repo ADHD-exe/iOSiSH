@@ -44,17 +44,15 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 Bootstrap script with interactive prompts for **Alpine Linux on iSH (iPhone/iPad)**. 
 intended to be run as **root** on a fesh iSH app and convert it to a feature filled shell-first environment with:
 
-- a real primary user account
-- configure the prompt to read `/etc/hostname`
+- config OpenSSH server/client **hotspot bypass tethering** 
+- custom primary user account
+- custom hostname fix `/etc/hostname`
 - Zsh as the login shell for both `root` and the primary user
-- Oh My Zsh + Zinit + iSH safe aliases
-- stable Zsh plugins for iSH
-- config OpenSSH server/client **for hotspot bypass data tethering** + copy-ready SSH config snippets for home PC
-- start `sshd` for iSH 
+- Oh My Zsh + Zinit + Plugin + iSH safe aliases
+- copy-ready SSH config snippets for home PC
 - sudo + doas
 - OpenRC service registration
-- iSH-safe aliases
-- automatic future installation manpages/docs & zsh-completion for installed packages via alias: `add`
+- auto install manpages/docs & zsh-completions via apk add alias: `add`
 
 ### Interactive setup
 
