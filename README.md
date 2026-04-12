@@ -40,57 +40,77 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@@@ml'         .I_&$$$$$$$$$$$$$$$
 $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
 ```
-Bootstrap script for **Alpine Linux on iSH** with an SSH workflow designed around an iPhone hotspot and a home PC.
+Bootstrap script for **Alpine Linux on iSH (iPhone/iPad)**.
 
-This setup is built around **three SSH profiles**:
+This repo is focused on getting a practical shell-first environment working on iSH with:
 
-1. **`ish-hotspot`**  
-   From the **home PC**, open a **SOCKS5 proxy** through the iSH SSH server.
-
-2. **`ssh-home`**  
-   From **inside iSH**, connect back to the **home PC** over SSH.
-
-3. **`ssh-ish`**  
-   From the **home PC**, do a normal SSH login into the iSH SSH server.
+- a real primary user account
+- Zsh as the login shell for both `root` and the primary user
+- Oh My Zsh + Zinit
+- stable Zsh plugins that are realistic for iSH
+- OpenSSH server + SSH client config
+- sudo + doas
+- OpenRC best-effort service registration
+- iSH-safe aliases
+- persistent hostname handling for the iSH hostname limitation
+- automatic installation of available manpages/docs for installed packages
 
 ---
 
-## What this script configures
+## What this script does
 
-### On iSH
+The main script is:
 
-- installs and configures **OpenSSH server**
-- configures `sshd` to listen on all interfaces
-- enables forwarding-related options for tunnel use:
-  - `AllowTcpForwarding yes`
-  - `GatewayPorts yes`
-  - `PermitTunnel yes`
-- enables normal SSH login:
-  - `PermitRootLogin yes`
-  - `PasswordAuthentication yes`
-  - `PubkeyAuthentication yes`
-- generates SSH host keys
-- creates a primary user
-- sets passwords for `root` and the primary user
-- installs Zsh, Oh My Zsh, Zinit, tools, and manpages/docs
-- writes an iSH-side SSH client profile named **`ssh-home`**
-- generates **PC-side SSH config snippets** for:
-  - `ish-hotspot`
-  - `ssh-ish`
+- `iOSiSH.sh`
 
-### On the home PC
+It is intended to be run as **root** on Alpine inside iSH.
 
-The script **cannot directly edit your home PC**, but it generates ready-to-copy files inside iSH at:
+### It will
 
-```text
-/home/<primary-user>/pc-ssh-snippets
-```
-
-That directory contains:
-
-- `pc_ssh_config.conf`
-- `pc_commands.txt`
-- `README.txt`
+- update `apk` indexes
+- install a practical base toolset, including:
+  - `zsh`
+  - `git`
+  - `curl`
+  - `wget`
+  - `openssh`
+  - `sudo`
+  - `doas`
+  - `openrc`
+  - `tmux`
+  - `htop`
+  - `ripgrep`
+  - `fd`
+  - `fzf`
+  - `neovim`
+  - `jq`
+- install manpage/doc support where Alpine provides it, including:
+  - `mandoc`
+  - `man-pages`
+  - `less-doc`
+  - matching `*-doc` packages when available
+- create or configure the primary user
+- set the login shell to `zsh` for:
+  - `root`
+  - the primary user
+- install **Oh My Zsh**
+- install **Zinit**
+- create:
+  - `~/.config/zsh/.aliases`
+- source that aliases file from `.zshrc`
+- generate a shared SSH keypair
+- write persistent hostname data to:
+  - `/etc/hostname`
+  - `/etc/hosts`
+- configure the prompt to read `/etc/hostname` instead of relying on iSH’s live hostname behavior
+- configure **OpenSSH server** in:
+  - `/etc/ssh/sshd_config`
+- configure **SSH client config** in:
+  - `/home/<primary-user>/.ssh/config`
+- link root back to the shared shell and SSH assets under `/root`
+- install OpenRC and attempt to register `sshd`
+- start `sshd` in a best-effort way for iSH
+- generate copy-ready SSH config snippets for a home PC
 
 ---
 
@@ -108,9 +128,9 @@ chmod +x /tmp/iOSiSH.sh && \
 
 ---
 
-## Interactive values the script asks for
+## Interactive setup
 
-The installer now asks for values that actually match the final setup:
+The installer prompts for values that match the current script behavior:
 
 - iSH hostname
 - primary username
@@ -124,122 +144,69 @@ The installer now asks for values that actually match the final setup:
 - home PC SSH username
 - SOCKS5 port to use on the home PC
 
-If you leave the **home PC SSH host** blank, the script skips `ssh-home`.
+If you leave the **home PC SSH host** blank, the script skips the outbound `ssh-home` profile.
 
 ---
 
-## The three SSH setups
+## Shell environment
 
-## 1) `ish-hotspot`
+The script builds a shared shell setup owned by the primary user and reused by root.
 
-This is for the **home PC**.
+### Shared shell assets
 
-It creates a local SOCKS5 proxy on the home PC, routed through the iSH SSH server over your iPhone hotspot.
+- `/home/<primary-user>/.zshrc`
+- `/home/<primary-user>/.config/zsh/.aliases`
+- `/home/<primary-user>/.oh-my-zsh`
+- `/home/<primary-user>/.local/share/zinit`
 
-### Direct command from the home PC
+### Zsh behavior
 
-```sh
-ssh -N -D 1080 root@172.20.10.10 -p 22
-```
+The generated `.zshrc` is set up to provide:
 
-### Recommended SSH config on the home PC
+- history settings tuned for interactive shell use
+- completion initialization that avoids common iSH/ownership issues
+- a hostname-aware prompt based on `/etc/hostname`
+- Oh My Zsh library/plugin loading where available
+- Zinit plugin loading for:
+  - `zsh-completions`
+  - `zsh-autosuggestions`
+  - `zsh-history-substring-search`
+  - `fast-syntax-highlighting`
+- optional `neofetch` on shell startup if installed
 
-```sshconfig
-Host ish-hotspot
-    HostName 172.20.10.10
-    User root
-    Port 22
-    DynamicForward 1080
-    ExitOnForwardFailure yes
-    ServerAliveInterval 30
-    ServerAliveCountMax 3
-    TCPKeepAlive yes
-```
+### Aliases
 
-### Start it
+The script writes a shared aliases file and sources it from `.zshrc`.
 
-```sh
-ssh -N ish-hotspot
-```
-
-### Then point apps on the home PC to
-
-```text
-Host: 127.0.0.1
-Port: 1080
-Type: SOCKS5
-```
+That keeps aliases separate from the main shell config and makes it easier to edit later.
 
 ---
 
-## 2) `ssh-home`
+## User, privilege, and hostname setup
 
-This is created **inside iSH**.
+The script creates a primary user, adds that user to `wheel`, and configures:
 
-It is an outbound SSH client profile from iSH to your home PC.
+- `sudo`
+- `doas`
 
-### Inside iSH
+It also writes:
 
-```sh
-ssh ssh-home
-```
+- `/etc/hostname`
+- `/etc/hosts`
 
-The script writes this profile into:
-
-```text
-/home/<primary-user>/.ssh/config
-```
-
-Example generated structure:
-
-```sshconfig
-Host ssh-home
-    HostName <home-pc-host>
-    User <home-pc-user>
-    Port <home-pc-port>
-    IdentityFile /home/<primary-user>/.ssh/id_ed25519
-    IdentitiesOnly yes
-    PreferredAuthentications publickey,password
-    PubkeyAuthentication yes
-```
+This matters on iSH because the live hostname behavior is not always what you want the prompt to display.
 
 ---
 
-## 3) `ssh-ish`
+## SSH setup
 
-This is for the **home PC**.
+SSH is one major part of the script, but not the whole point of the repo.
 
-It is a normal SSH login into iSH over the hotspot.
+The script configures iSH as an SSH server and also prepares client-side configs for common hotspot workflows.
 
-### Direct command from the home PC
+### Server-side SSH settings
 
-```sh
-ssh root@172.20.10.10 -p 22
-```
-
-### Recommended SSH config on the home PC
-
-```sshconfig
-Host ssh-ish
-    HostName 172.20.10.10
-    User root
-    Port 22
-    ServerAliveInterval 30
-    ServerAliveCountMax 3
-    TCPKeepAlive yes
-```
-
-### Start it
-
-```sh
-ssh ssh-ish
-```
-
----
-
-## SSH server settings applied on iSH
-
-The script ensures these server-side settings in `/etc/ssh/sshd_config`:
+The script ensures these settings in `/etc/ssh/sshd_config`:
 
 ```text
 Port 22
@@ -255,64 +222,87 @@ PermitTTY yes
 PermitTunnel yes
 ```
 
----
-
-## Files created by the script
-
-### Shared shell assets
-
-- `/home/<primary-user>/.zshrc`
-- `/home/<primary-user>/.config/zsh/.aliases`
-- `/home/<primary-user>/.oh-my-zsh`
-- `/home/<primary-user>/.local/share/zinit`
-
-### Shared SSH assets on iSH
+### SSH assets on iSH
 
 - `/home/<primary-user>/.ssh/config`
 - `/home/<primary-user>/.ssh/id_ed25519`
 - `/home/<primary-user>/.ssh/id_ed25519.pub`
 
-### PC-side snippets generated from iSH
+### Three SSH workflows
+
+#### `ish-hotspot`
+From the **home PC**, open a **SOCKS5 proxy** through the iSH SSH server.
+
+#### `ssh-home`
+From **inside iSH**, connect back to the **home PC** over SSH.
+
+#### `ssh-ish`
+From the **home PC**, do a normal SSH login into the iSH SSH server.
+
+### PC-side generated files
+
+The script cannot directly edit your home PC, so it generates copy-ready files inside iSH at:
+
+```text
+/home/<primary-user>/pc-ssh-snippets
+```
+
+That directory contains:
+
+- `pc_ssh_config.conf`
+- `pc_commands.txt`
+- `README.txt`
+
+---
+
+## Files created by the script
+
+### Shell and shared assets
+
+- `/home/<primary-user>/.zshrc`
+- `/home/<primary-user>/.config/zsh/.aliases`
+- `/home/<primary-user>/.oh-my-zsh`
+- `/home/<primary-user>/.local/share/zinit`
+- `/home/<primary-user>/.ssh/config`
+- `/home/<primary-user>/.ssh/id_ed25519`
+- `/home/<primary-user>/.ssh/id_ed25519.pub`
+
+### PC-side snippets
 
 - `/home/<primary-user>/pc-ssh-snippets/pc_ssh_config.conf`
 - `/home/<primary-user>/pc-ssh-snippets/pc_commands.txt`
 - `/home/<primary-user>/pc-ssh-snippets/README.txt`
 
-Root is then linked back to the shared shell and SSH assets through symlinks under `/root`.
+### Root-side reuse
+
+Root keeps its own home directory, but reuses the shared shell and SSH assets through symlinks under `/root`.
 
 ---
 
-## Important limitation
+## iSH notes
 
-The script can prepare the **config snippets** for your home PC, but it cannot automatically write into your home PC's `~/.ssh/config` from inside iSH.
+A few parts of the script are intentionally **best effort** because iSH is not the same as a full native Alpine install.
 
-You still need to:
+That especially applies to:
 
-1. copy the generated PC snippet file out of iSH
-2. merge it into the home PC's `~/.ssh/config`
+- OpenRC behavior
+- service startup behavior
+- hotspot addressing stability
+- long-running shell/server sessions on iPhone/iPad
 
----
+A useful keep-awake helper is:
 
-## Hotspot reminder
-
-The default hotspot IP often used in this setup is:
-
-```text
-172.20.10.10
+```sh
+cat /dev/location > /dev/null &
 ```
 
-But hotspot addressing can change.
-
-If the iSH hotspot IP changes, update the **home PC** config snippet for:
-
-- `ish-hotspot`
-- `ssh-ish`
+You may also need to allow location access in iSH and enable the app’s keep-screen-on behavior depending on your setup.
 
 ---
 
 ## Notes
 
-- `ish-hotspot` and `ssh-ish` are **PC-side** profiles
-- `ssh-home` is an **iSH-side** profile
-- the installer now matches that architecture directly
+- this repo is a full iSH bootstrap/setup project, not just an SSH helper
+- SSH is important here, but it is only one part of the environment being built
 - manpages/docs are installed for both already-installed packages and packages added by the script where Alpine provides matching doc packages
+- hotspot IPs can change, so generated PC-side SSH snippets may need to be updated later
