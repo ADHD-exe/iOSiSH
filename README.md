@@ -41,10 +41,6 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$@@@ml'         .I_&$$$$$$$$$$$$$$$
 $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 
 ```
-
-Alpine Linux + iSH setup for iPhone with zsh, SSH, and useful terminal tooling.
-
-
 Alpine Linux + iSH setup for iPhone with zsh, SSH, and quality-of-life tooling.
 
 ## Features
