@@ -1247,8 +1247,16 @@ Host remote-tunnel
     PubkeyAuthentication yes
     IdentitiesOnly yes
     IdentityFile $PRIMARY_HOME/.ssh/id_ed25519
+<<<<<<< HEAD
     DynamicForward $REMOTE_TUNNEL_PORT
     Compression no
+=======
+    DynamicForward 1080
+    Compression no
+    PermitTunnel yes
+    GatewayPort yes
+    PermitTTY yes
+>>>>>>> e7f19e5f50e2902999bc1c2c0c9238b0450b72cf
     ExitOnForwardFailure yes
 EOF
     chmod 600 "$cfg"
@@ -1564,6 +1572,7 @@ main() {
     pkg_install_alias "util-linux-openrc" util-linux-openrc
     pkg_install_alias "nmap" nmap
     pkg_install_alias "python3" python3
+<<<<<<< HEAD
     pkg_install_alias "py3-pip" py3-pip pip
     pkg_install_alias "py3-setuptools" py3-setuptools
     pkg_install_alias "nikto" nikto
@@ -1571,6 +1580,16 @@ main() {
     pkg_install_alias "sqlmap" sqlmap
     pkg_install_alias "node.js" nodejs node.js
     pkg_install_alias "transmission-cli" transmission-cli
+=======
+    pkg_install_alias "py3-pip" pip
+    pkg_install_alias "py3-setuptools" py3-setuptools
+    pkg_install_alias "nikto" nikto
+    pkg_install_alias "aircrack-ng" aircrack-ng
+    pkg_install_alias "ripgrep" ripgrep
+    pkg_install_alias "sqlmap" sqlmap
+    pkg_install_alias "node.js" node.js
+    pkg_install_alias "transmmission-cli" transmission-cli
+>>>>>>> e7f19e5f50e2902999bc1c2c0c9238b0450b72cf
     pkg_install_alias "transmission-daemon" transmission-daemon
     pkg_install_alias "masscan" masscan
     pkg_install_alias "whois" whois
@@ -1578,10 +1597,21 @@ main() {
     pkg_install_alias "socat" socat
     pkg_install_alias "transmission" transmission
     pkg_install_alias "dovecot" dovecot
+<<<<<<< HEAD
     pkg_install_alias "strongswan" strongswan
     pkg_install_alias "snort" snort
     pkg_install_alias "fwsnort" fwsnort
     pkg_install_alias "jwhois" jwhois
+=======
+    pkg_install_alias "bind-tools" bind-tools
+    pkg_install_alias "strongswan" strongswan
+    pkg_install_alias "snort" snort
+    pkg_install_alias "fwsnort" fwsnort
+    pkg_install_alias "masscan" masscan
+    pkg_install_alias "whois" whois
+    pkg_install_alias "jwhois" jwhois
+    pkg_install_alias "socat" socat 
+>>>>>>> e7f19e5f50e2902999bc1c2c0c9238b0450b72cf
     pkg_install_alias "go" go
     pkg_install_alias "rust" rust
     pkg_install_alias "npm" npm
@@ -1590,10 +1620,18 @@ main() {
     pkg_install_alias "shellcheck" shellcheck
     pkg_install_alias "abuild" abuild
     pkg_install_alias "man-pages" man-pages
+<<<<<<< HEAD
     pkg_install_alias "mandoc" mandoc
     pkg_install_alias "less-doc" less-doc
 
     install_docs_for_installed_packages
+=======
+    pkg_install_alias "mandoc" mandoc 
+    pkg_install_alias "less" less
+    pkg_install_alias "less-doc" less-doc
+    
+    
+>>>>>>> e7f19e5f50e2902999bc1c2c0c9238b0450b72cf
 
     set_hostname_persistent
     ensure_primary_user
