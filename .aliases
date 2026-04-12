@@ -20,6 +20,7 @@ if command -v nvim >/dev/null 2>&1; then
     alias v='nvim'
     alias vi='nvim'
     alias vim='nvim'
+    alias svim='sudo nvim'
     alias zshrc='nvim ~/.zshrc'
     alias al='nvim ~/.config/zsh/.aliases'
 elif command -v nano >/dev/null 2>&1; then
@@ -64,10 +65,8 @@ alias glog='git log --oneline --decorate --graph'
 alias gloga='git log --oneline --decorate --graph --all'
 alias gpf='git push --force-with-lease --force-if-includes'
 
-command -v rg >/dev/null 2>&1 && alias rg='rg'
 command -v fd >/dev/null 2>&1 && alias f='fd'
 command -v tmux >/dev/null 2>&1 && alias t='tmux'
-command -v htop >/dev/null 2>&1 && alias htop='htop'
 command -v lazygit >/dev/null 2>&1 && alias lg='lazygit'
 command -v tree >/dev/null 2>&1 && alias tree='tree -C'
 
@@ -91,6 +90,7 @@ command -v doas >/dev/null 2>&1 && alias apkr='doas apk del'
 
 alias sshc='ssh cachyos'
 alias ssht='ssh -N cachyos-tunnel'
+alias sshhome='ssh ssh-home'
 alias rl='exec zsh -l'
 
 if command -v exa >/dev/null 2>&1; then
@@ -106,18 +106,6 @@ else
     alias ll='ls -lah --color=auto'
     command -v tree >/dev/null 2>&1 && alias lt='tree -L 2'
 fi
-
-alias ll='ls -lah'
-alias la='ls -A'
-alias l='ls -CF'
-alias grep='grep --color=auto'
-alias df='df -h'
-alias du='du -h'
-alias cls='clear'
-alias v='nvim'
-alias svim='sudo nvim'
-alias t='tmux'
-alias sshhome='ssh ssh-home'
 
 apkaddplus() {
     if [ "$#" -eq 0 ]; then
@@ -146,4 +134,5 @@ apkaddplus() {
         fi
     done
 }
-alias add='app'
+
+alias add='apkaddplus'
