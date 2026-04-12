@@ -64,37 +64,114 @@ The main script is:
 - `iOSiSH.sh`
 
 It is intended to be run as **root** on Alpine inside iSH.
+### Packages installed include 
 
-### It will
 
-- update `apk` indexes
-- install a practical base toolset, including:
+The setup script installs a solid Alpine/iSH baseline for shell workflow, editing, development, SSH access, networking, and optional security tooling.
+
+- Shell and terminal basics
+  - `bash`
   - `zsh`
-  - `git`
-  - `curl`
-  - `wget`
-  - `openssh`
-  - `sudo`
-  - `doas`
-  - `openrc`
+  - `ncurses`
+  - `less`
+  - `grep`
+  - `sed`
+  - `coreutilsl`
+  - `util-linux`
+  - `diffutils`
+  - `findutils`
+  - `file`
+  - `patch`
+  - `tree`
+  - `nano`
+
+- Shell experience and workflow
+  - `fzf`
+  - `zoxide`
   - `tmux`
   - `htop`
   - `ripgrep`
   - `fd`
-  - `fzf`
+  - `lazygit`
+  - `neofetch`
+
+- Editors and coding environment
   - `neovim`
+  - `git`
   - `jq`
-- install manpage/doc support where Alpine provides it, including:
-  - `mandoc`
+  - `shellcheck`
+  - `abuild`
+  - `gcc`
+  - `linux-headers`
+  - `linux-lts-headers`
+  - `linux-edge-headers`
+  
+- Programming languages and runtimes
+  - `python3`
+  - `py3-pip`
+  - `py3-setuptools`
+  - `nodejs`
+  - `npm`
+  - `go`
+  - `rust`
+
+- SSH, remote access, and privilege tools
+  - `openssh`
+  - `openssh-server`
+  - `openssh-client`
+  - `openssh-client-default`
+  - `sudo`
+  - `doas`
+  - `shadow`
+  - `openrc`
+  - `iptables-openrc`
+  - `util-linux-openrc`
+
+- Archive and transfer tools
+  - `curl`
+  - `wget`
+  - `unzip`
+  - `zip`
+
+
+- Torrent and transfer tools
+  - `transmission`
+  - `transmission-cli`
+  - `transmission-daemon`
+
+- Mail and server-related packages
+  - `dovecot`
+
+- Documentation and manpages
   - `man-pages`
+  - `mandoc`
   - `less-doc`
-  - matching `*-doc` packages when available
-- create or configure the primary user
+
+- Security, pentesting, networking and diagnostics:
+  - `nikto`
+  - `aircrack-ng`
+  - `sqlmap`
+  - `masscan`
+  - `snort`
+  - `fwsnort`
+  - `strongswan`
+  - `nmap`
+  - `bind-tools`
+  - `socat`
+  - `whois`
+  - `jwhois`
+  
+Notes:
+
+Some packages use Alpine fallback names in the script, so the exact installed variant can differ depending on repository availability.
+Some heavier packages may be limited by iSH and iOS sandboxing.
+
+### It will
+
+- update `apk` indexes
 - set the login shell to `zsh` for:
   - `root`
   - the primary user
-- install **Oh My Zsh**
-- install **Zinit**
 - create:
   - `~/.config/zsh/.aliases`
 - source that aliases file from `.zshrc`
@@ -108,7 +185,6 @@ It is intended to be run as **root** on Alpine inside iSH.
 - configure **SSH client config** in:
   - `/home/<primary-user>/.ssh/config`
 - link root back to the shared shell and SSH assets under `/root`
-- install OpenRC and attempt to register `sshd`
 - start `sshd` in a best-effort way for iSH
 - generate copy-ready SSH config snippets for a home PC
 
@@ -131,7 +207,6 @@ chmod +x /tmp/iOSiSH.sh && \
 ## Interactive setup
 
 The installer prompts for values that match the current script behavior:
-
 - iSH hostname
 - primary username
 - primary home directory
