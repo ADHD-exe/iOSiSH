@@ -190,19 +190,7 @@ Some heavier packages may be limited by iSH and iOS sandboxing.
 
 ---
 
-## Fresh iSH install run command
 
-On a fresh iSH install you are already `root`, so you do **not** need `su - root`.
-
-```sh
-apk update && apk upgrade && apk add curl
-
-curl -fsSL https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh -o /tmp/iOSiSH.sh && \
-chmod +x /tmp/iOSiSH.sh && \
-/tmp/iOSiSH.sh
-```
-
----
 
 ## Interactive setup
 
@@ -374,7 +362,19 @@ cat /dev/location > /dev/null &
 You may also need to allow location access in iSH and enable the app’s keep-screen-on behavior depending on your setup.
 
 ---
+## Fresh iSH install run command
 
+On a fresh iSH install you are already `root`, so you do **not** need `su - root`.
+
+```sh
+apk update && apk upgrade && apk add curl
+
+curl -fsSL https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/iOSiSH.sh -o /tmp/iOSiSH.sh && \
+chmod +x /tmp/iOSiSH.sh && \
+/tmp/iOSiSH.sh
+```
+
+---
 ## Notes
 
 - this repo is a full iSH bootstrap/setup project, not just an SSH helper
