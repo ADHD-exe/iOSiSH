@@ -17,7 +17,7 @@ REMOTE_PORT_DEFAULT="22"
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
 # Semicolon-separated key=value pairs for sshd_config management
-SSHD_DEFAULTS_DEFAULT="AllowTcpForwarding=yes;PermitRootLogin=no;PasswordAuthentication=no;PubkeyAuthentication=yes;PermitEmptyPasswords=no"
+SSHD_DEFAULTS_DEFAULT="AllowTcpForwarding=yes;PermitRootLogin=no;PasswordAuthentication=no;PubkeyAuthentication=yes;PermitEmptyPasswords=no;GatewayPorts=yes;Compression=no;PermitTTY=yes;PermitTunnel=yes"
 SSHD_DEFAULTS="${SSHD_DEFAULTS:-$SSHD_DEFAULTS_DEFAULT}"
 
 ALIASES_URL="https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main/.aliases"
@@ -1075,7 +1075,10 @@ Host remote-tunnel
     IdentitiesOnly yes
     IdentityFile $PRIMARY_HOME/.ssh/id_ed25519
     DynamicForward 1080
-    Compression yes
+    Compression no
+    PermitTunnel yes
+    GatewayPort yes
+    PermitTTY yes
     ExitOnForwardFailure yes
 EOF
     chmod 600 "$cfg"
@@ -1383,7 +1386,44 @@ main() {
     pkg_install_alias "openrc" openrc
     pkg_install_alias "iptables-openrc" iptables-openrc
     pkg_install_alias "util-linux-openrc" util-linux-openrc
-    pkg_install_alias "exa" exa
+    pkg_install_alias "nmap" nmap
+    pkg_install_alias "python3" python3
+    pkg_install_alias "py3-pip" pip
+    pkg_install_alias "py3-setuptools" py3-setuptools
+    pkg_install_alias "nikto" nikto
+    pkg_install_alias "aircrack-ng" aircrack-ng
+    pkg_install_alias "ripgrep" ripgrep
+    pkg_install_alias "sqlmap" sqlmap
+    pkg_install_alias "node.js" node.js
+    pkg_install_alias "transmmission-cli" transmission-cli
+    pkg_install_alias "transmission-daemon" transmission-daemon
+    pkg_install_alias "masscan" masscan
+    pkg_install_alias "whois" whois
+    pkg_install_alias "bind-tools" bind-tools
+    pkg_install_alias "socat" socat
+    pkg_install_alias "transmission" transmission
+    pkg_install_alias "dovecot" dovecot
+    pkg_install_alias "bind-tools" bind-tools
+    pkg_install_alias "strongswan" strongswan
+    pkg_install_alias "snort" snort
+    pkg_install_alias "fwsnort" fwsnort
+    pkg_install_alias "masscan" masscan
+    pkg_install_alias "whois" whois
+    pkg_install_alias "jwhois" jwhois
+    pkg_install_alias "socat" socat 
+    pkg_install_alias "go" go
+    pkg_install_alias "rust" rust
+    pkg_install_alias "npm" npm
+    pkg_install_alias "gcc" gcc
+    pkg_install_alias "jq" jq
+    pkg_install_alias "shellcheck" shellcheck
+    pkg_install_alias "abuild" abuild
+    pkg_install_alias "man-pages" man-pages
+    pkg_install_alias "mandoc" mandoc 
+    pkg_install_alias "less" less
+    pkg_install_alias "less-doc" less-doc
+    
+    
 
     set_hostname_persistent
     ensure_primary_user
