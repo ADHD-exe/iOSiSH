@@ -28,24 +28,25 @@ PC_SOCKS_PORT="${PC_SOCKS_PORT:-1080}"
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 REPO_RAW_BASE="${REPO_RAW_BASE:-https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main}"
 
-INSTALLED_PKGS=""
-SKIPPED_PKGS=""
-DOCS_INSTALLED_PKGS=""
-DOCS_SKIPPED_PKGS=""
+if [ -t 1 ]; then
+    C_RESET="$(printf '\033[0m')"
+    C_RED="$(printf '\033[31m')"
+    C_GREEN="$(printf '\033[32m')"
+    C_YELLOW="$(printf '\033[33m')"
+else
+    C_RESET=""
+    C_RED=""
+    C_GREEN=""
+    C_YELLOW=""
+fi
 
 say() { printf '%s\n' "$*"; }
-info() { printf '[INFO] %s\n' "$*"; }
-ok() { printf '[ OK ] %s\n' "$*"; }
-warn() { printf '[WARN] %s\n' "$*"; }
-err() { printf '[ERR ] %s\n' "$*"; >&2; }
-
-append_csv() {
-    if [ -n "${1:-}" ]; then
-        printf '%s, %s' "$1" "$2"
-    else
-        printf '%s' "$2"
-    fi
-}
+info() { printf '%s[INFO] %s%s\n' "$C_YELLOW" "$*" "$C_RESET"; }
+ok() { printf '%s[ OK ] %s%s\n' "$C_GREEN" "$*" "$C_RESET"; }
+warn() { printf '%s[WARN] %s%s\n' "$C_RED" "$*" "$C_RESET"; }
+err() { printf '%s[ERR ] %s%s\n' "$C_RED" "$*" "$C_RESET" >&2; }
+scan() { printf '%s[SCAN] %s%s\n' "$C_YELLOW" "$*" "$C_RESET"; }
+fail() { printf '%s[FAIL] %s%s\n' "$C_RED" "$*" "$C_RESET"; }
 
 cmd_exists() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { apk info -e "$1" >/dev/null 2>&1; }
@@ -260,9 +261,9 @@ validate_config() {
 pkg_install_alias() {
     label="$1"; shift
     for p in "$@"; do
+        scan "$label: checking candidate $p"
         if pkg_installed "$p"; then
-            info "$label: already installed as $p"
-            INSTALLED_PKGS=$(append_csv "$INSTALLED_PKGS" "$label ($p)")
+            ok "$label: already installed as $p"
             return 0
         fi
     done
@@ -271,35 +272,45 @@ pkg_install_alias() {
         if pkg_exists "$p"; then
             found_any=1
             info "$label: installing $p"
-            if apk add --no-cache "$p" >/dev/null 2>&1; then
+            if apk add --no-cache "$p"; then
                 ok "$label: installed $p"
-                INSTALLED_PKGS=$(append_csv "$INSTALLED_PKGS" "$label ($p)")
                 return 0
             fi
-            warn "$label: failed to install $p"
+            fail "$label: failed to install $p"
+        else
+            fail "$label: package not available as $p"
         fi
     done
     [ "$found_any" -eq 1 ] && warn "$label: all candidates failed" || warn "$label: package not found"
-    SKIPPED_PKGS=$(append_csv "$SKIPPED_PKGS" "$label")
 }
 
 install_doc_package() {
     doc_pkg="$1"
-    source_pkg="$2"
+    source_pkg="${2:-unknown}"
+
     if pkg_installed "$doc_pkg"; then
-        DOCS_INSTALLED_PKGS=$(append_csv "$DOCS_INSTALLED_PKGS" "$source_pkg -> $doc_pkg")
+        ok "[docs] $source_pkg -> $doc_pkg already installed"
         return 0
     fi
-    pkg_exists "$doc_pkg" || return 1
-    if apk add --no-cache "$doc_pkg" >/dev/null 2>&1; then
-        DOCS_INSTALLED_PKGS=$(append_csv "$DOCS_INSTALLED_PKGS" "$source_pkg -> $doc_pkg")
+
+    if ! pkg_exists "$doc_pkg"; then
+        fail "[docs] $source_pkg -> $doc_pkg not available"
+        return 1
+    fi
+
+    info "[docs] installing $doc_pkg for $source_pkg"
+    if apk add --no-cache "$doc_pkg"; then
+        ok "[docs] installed $doc_pkg for $source_pkg"
         return 0
     fi
+
+    fail "[docs] failed to install $doc_pkg for $source_pkg"
     return 1
 }
 
 install_docs_for_pkg() {
     pkg="$1"
+    scan "[docs] scanning package: $pkg"
     case "$pkg" in
         ""|*-doc|mandoc|man-pages|docs) return 0 ;;
     esac
@@ -314,16 +325,17 @@ install_docs_for_pkg() {
             ;;
     esac
     install_doc_package "${pkg}-doc" "$pkg" && return 0
-    DOCS_SKIPPED_PKGS=$(append_csv "$DOCS_SKIPPED_PKGS" "$pkg")
 }
 
 install_docs_for_installed_packages() {
+    info "[docs] starting installed package scan"
     install_doc_package "mandoc" "manual reader" || true
     install_doc_package "man-pages" "system manpages" || true
     install_doc_package "less-doc" "less" || true
     for pkg in $(apk info 2>/dev/null); do
         install_docs_for_pkg "$pkg"
     done
+    ok "[docs] finished installed package scan"
 }
 
 require_root() {
@@ -406,7 +418,7 @@ install_shell_frameworks() {
     clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$PRIMARY_HOME/.oh-my-zsh" "Oh My Zsh" || true
     clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$PRIMARY_HOME/.local/share/zinit/zinit.git" "Zinit" || true
     mkdir -p "$PRIMARY_HOME/.cache/zsh" "$PRIMARY_HOME/.local/share" "$PRIMARY_HOME/.ssh" "$PRIMARY_HOME/.config/zsh"
-    rm -f "$PRIMARY_HOME"/.zcompdump* 2>/dev/null || true
+    rm -f "$PRIMARY_HOME"/.zcompdump* "$PRIMARY_HOME/.cache/zsh"/zcompdump-* 2>/dev/null || true
     chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.oh-my-zsh" "$PRIMARY_HOME/.local" "$PRIMARY_HOME/.cache" "$PRIMARY_HOME/.ssh" "$PRIMARY_HOME/.config" 2>/dev/null || true
     chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
 }
@@ -588,10 +600,10 @@ link_root_to_shared_assets() {
     link_path_force "$PRIMARY_HOME/.local/share/zinit" /root/.local/share/zinit
     link_path_force "$PRIMARY_HOME/.config/zsh" /root/.config/zsh
     link_path_force "$PRIMARY_HOME/.ssh/config" /root/.ssh/config
-    link_path_force "$PRIMARY_HOME/.ssh/id_ed25519" /root/.ssh/id_ed25519
-    link_path_force "$PRIMARY_HOME/.ssh/id_ed25519.pub" /root/.ssh/id_ed25519.pub
+    [ -f "$PRIMARY_HOME/.ssh/id_ed25519" ] && link_path_force "$PRIMARY_HOME/.ssh/id_ed25519" /root/.ssh/id_ed25519
+    [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && link_path_force "$PRIMARY_HOME/.ssh/id_ed25519.pub" /root/.ssh/id_ed25519.pub
     chmod 700 /root/.ssh 2>/dev/null || true
-    ok "Linked root to shared shell and SSH assets"
+    ok "Linked root to shared canonical shell and SSH assets"
 }
 
 configure_sudo_doas() {
@@ -674,17 +686,42 @@ configure_openrc_and_start_sshd() {
 fix_permissions() {
     chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
     chmod 755 "$PRIMARY_HOME" 2>/dev/null || true
+
     for d in "$PRIMARY_HOME/.oh-my-zsh" "$PRIMARY_HOME/.local" "$PRIMARY_HOME/.cache" "$PRIMARY_HOME/.config"; do
         [ -e "$d" ] || continue
         chown -R "$PRIMARY_USER:$PRIMARY_USER" "$d" 2>/dev/null || true
         chmod -R go-w "$d" 2>/dev/null || true
     done
+
+    [ -d "$PRIMARY_HOME/.oh-my-zsh" ] && find "$PRIMARY_HOME/.oh-my-zsh" -type d -exec chmod 755 {} \; 2>/dev/null || true
+    [ -d "$PRIMARY_HOME/.local" ] && find "$PRIMARY_HOME/.local" -type d -exec chmod 755 {} \; 2>/dev/null || true
+    [ -d "$PRIMARY_HOME/.cache" ] && find "$PRIMARY_HOME/.cache" -type d -exec chmod 755 {} \; 2>/dev/null || true
+    [ -d "$PRIMARY_HOME/.config" ] && find "$PRIMARY_HOME/.config" -type d -exec chmod 755 {} \; 2>/dev/null || true
+
+    [ -d "$PRIMARY_HOME/.oh-my-zsh" ] && find "$PRIMARY_HOME/.oh-my-zsh" -type f -exec chmod 644 {} \; 2>/dev/null || true
+    [ -d "$PRIMARY_HOME/.local" ] && find "$PRIMARY_HOME/.local" -type f -exec chmod 644 {} \; 2>/dev/null || true
+    [ -d "$PRIMARY_HOME/.config" ] && find "$PRIMARY_HOME/.config" -type f -exec chmod 644 {} \; 2>/dev/null || true
+
+    [ -d "$PRIMARY_HOME/.cache/zsh" ] && chmod 700 "$PRIMARY_HOME/.cache/zsh" 2>/dev/null || true
+    [ -f "$PRIMARY_HOME/.zshrc" ] && chmod 644 "$PRIMARY_HOME/.zshrc" 2>/dev/null || true
+    [ -f "$PRIMARY_HOME/.config/zsh/.aliases" ] && chmod 644 "$PRIMARY_HOME/.config/zsh/.aliases" 2>/dev/null || true
+    rm -f "$PRIMARY_HOME"/.zcompdump* "$PRIMARY_HOME/.cache/zsh"/zcompdump-* 2>/dev/null || true
+
     if [ -d "$PRIMARY_HOME/.ssh" ]; then
         chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
         chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
         find "$PRIMARY_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
         [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$PRIMARY_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
     fi
+
+    chown -h root:root /root/.zshrc /root/.oh-my-zsh /root/.config/zsh /root/.local/share/zinit /root/.ssh/config /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub 2>/dev/null || true
+    chmod 700 /root 2>/dev/null || true
+    chmod 700 /root/.ssh 2>/dev/null || true
+    [ -L /root/.zshrc ] && [ "$(readlink /root/.zshrc 2>/dev/null)" = "$PRIMARY_HOME/.zshrc" ] || warn "root .zshrc is not linked to canonical asset"
+    [ -L /root/.config/zsh ] && [ "$(readlink /root/.config/zsh 2>/dev/null)" = "$PRIMARY_HOME/.config/zsh" ] || warn "root .config/zsh is not linked to canonical asset"
+    [ -L /root/.oh-my-zsh ] && [ "$(readlink /root/.oh-my-zsh 2>/dev/null)" = "$PRIMARY_HOME/.oh-my-zsh" ] || warn "root .oh-my-zsh is not linked to canonical asset"
+    [ -L /root/.local/share/zinit ] && [ "$(readlink /root/.local/share/zinit 2>/dev/null)" = "$PRIMARY_HOME/.local/share/zinit" ] || warn "root zinit is not linked to canonical asset"
+
     chmod 700 /root 2>/dev/null || true
     chmod 700 /root/.ssh 2>/dev/null || true
     ok "Fixed permissions"
@@ -692,11 +729,13 @@ fix_permissions() {
 
 prime_zsh_for_user() {
     target_user="$1"
+    info "Priming Zsh environment for $target_user"
     if [ "$target_user" = "root" ]; then
-        zsh -lc 'exit 0' >/dev/null 2>&1 || true
+        zsh -lc 'exit 0' || warn "Zsh priming did not complete cleanly for root"
     else
-        su - "$target_user" -c 'zsh -lc "exit 0"' >/dev/null 2>&1 || true
+        su - "$target_user" -c 'zsh -lc "exit 0"' || warn "Zsh priming did not complete cleanly for $target_user"
     fi
+    ok "Finished Zsh priming for $target_user"
 }
 
 self_test() {
@@ -776,10 +815,10 @@ main() {
     link_root_to_shared_assets
     configure_sudo_doas
     configure_sshd_server
-    configure_openrc_and_start_sshd
     fix_permissions
-    prime_zsh_for_user root
     prime_zsh_for_user "$PRIMARY_USER"
+    prime_zsh_for_user root
+    configure_openrc_and_start_sshd
 
     say ""
     say "============================================================"
