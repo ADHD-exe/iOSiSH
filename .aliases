@@ -107,9 +107,9 @@ else
     command -v tree >/dev/null 2>&1 && alias lt='tree -L 2'
 fi
 
-apkaddplus() {
+ap() {
     if [ "$#" -eq 0 ]; then
-        echo "usage: apkaddplus <package> [package...]"
+        echo "usage: ap <package> [package...]"
         return 1
     fi
 
@@ -135,4 +135,4 @@ apkaddplus() {
     done
 }
 
-alias add='apkaddplus'
+alias add='ap'
