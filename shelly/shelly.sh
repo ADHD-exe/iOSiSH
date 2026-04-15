@@ -163,9 +163,8 @@ prompt_select() {
   shift
   local options=("$@")
   local idx=1
-  printf '%s%s%s\n' "${MAGENTA}" "$prompt_text" "${RESET}"
-  for opt in "${options[@]}"; do
-    printf '  %d) %s\n' "$idx" "$opt"
+  printf '%s%s%s\n' "${MAGENTA}" "$prompt_text" "${RESET}" >&2
+printf ' %d) %s\n' "$idx" "$opt"
     ((idx++))
   done
   while true; do
