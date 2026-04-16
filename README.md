@@ -111,10 +111,8 @@ sh ./iOSiSH.sh
 ### One-line clone + run
 
 ```bash
-git clone https://github.com/<your-user-or-org>/iOSiSH.git && cd iOSiSH && sh ./iOSiSH.sh
+git clone https://github.com/ADHD-exe/iOSiSH.git && cd iOSiSH && sh ./iOSiSH.sh
 ```
-
-Replace `<your-user-or-org>` with the actual GitHub owner for the repository.
 
 If you already downloaded a zip archive instead of cloning, unpack it, `cd` into the repo directory, and run:
 
@@ -139,7 +137,7 @@ sh ./iOSiSH.sh --dry-run
 ### Run Shelly directly
 
 ```bash
-bash ./shelly/shelly.sh --primary-user rabbit
+bash ./shelly/shelly.sh --primary-user <username-here>
 ```
 
 
