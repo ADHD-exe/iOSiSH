@@ -32,6 +32,9 @@ show_plan_summary() {
     printf 'Package categories:     %s\n' "${SELECTED_PACKAGE_CATEGORIES:-}"
     printf 'Selected packages:      %s\n' "${SELECTED_PACKAGES:-}"
     printf 'Editor choice:          %s\n' "${EDITOR_CHOICE:-}"
+    printf 'Editor profile:         %s\n' "${EDITOR_PROFILE:-}"
+    printf 'Editor config:          %s\n' "${INSTALL_EDITOR_CONFIG:-}"
+    printf 'Editor plugins:         %s\n' "${INSTALL_EDITOR_PLUGINS:-}"
     printf 'Install SSH client:     %s\n' "${INSTALL_SSH_CLIENT:-}"
     printf 'Install SSHD:           %s\n' "${INSTALL_SSHD:-}"
     printf 'Install sudo:           %s\n' "${INSTALL_SUDO:-}"
@@ -52,7 +55,7 @@ prompt_summary_action() {
         read -r reply || return 1
         [ -n "$reply" ] || reply="proceed"
         case "$reply" in
-            proceed|quit)
+            proceed|save-and-quit|quit)
                 printf '%s\n' "$reply"
                 return 0
                 ;;

@@ -30,6 +30,11 @@ DRY_RUN="${DRY_RUN:-0}"
 SSH_RELAXED="${SSH_RELAXED:-0}"
 REPO_RAW_BASE="${REPO_RAW_BASE:-https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main}"
 
+# Guided installer module paths
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+INSTALLER_DIR="${INSTALLER_DIR:-$SCRIPT_DIR/installer}"
+INSTALLER_STATE_FILE="${INSTALLER_STATE_FILE:-$SCRIPT_DIR/.iosish-state.env}"
+
 if [ -t 1 ]; then
     C_RESET="$(printf '\033[0m')"
     C_RED="$(printf '\033[31m')"
@@ -48,7 +53,40 @@ ok() { printf '%s[ OK ] %s%s\n' "$C_GREEN" "$*" "$C_RESET"; }
 warn() { printf '%s[WARN] %s%s\n' "$C_RED" "$*" "$C_RESET"; }
 err() { printf '%s[ERR ] %s%s\n' "$C_RED" "$*" "$C_RESET" >&2; }
 scan() { printf '%s[SCAN] %s%s\n' "$C_YELLOW" "$*" "$C_RESET"; }
-fail() { printf '%s[FAIL] %s%s\n' "$C_RED" "$*" "$C_RESET"; }
+fail() { printf '%s[FAIL] %s%s
+' "$C_RED" "$*" "$C_RESET"; }
+
+load_guided_installer_modules() {
+    [ -r "$INSTALLER_DIR/state.sh" ] || {
+        printf 'Missing installer module: %s/state.sh
+' "$INSTALLER_DIR" >&2
+        return 1
+    }
+    [ -r "$INSTALLER_DIR/prompts.sh" ] || {
+        printf 'Missing installer module: %s/prompts.sh
+' "$INSTALLER_DIR" >&2
+        return 1
+    }
+    [ -r "$INSTALLER_DIR/summary.sh" ] || {
+        printf 'Missing installer module: %s/summary.sh
+' "$INSTALLER_DIR" >&2
+        return 1
+    }
+    [ -r "$INSTALLER_DIR/plan.sh" ] || {
+        printf 'Missing installer module: %s/plan.sh
+' "$INSTALLER_DIR" >&2
+        return 1
+    }
+
+    # shellcheck disable=SC1091
+    . "$INSTALLER_DIR/state.sh" || return 1
+    # shellcheck disable=SC1091
+    . "$INSTALLER_DIR/prompts.sh" || return 1
+    # shellcheck disable=SC1091
+    . "$INSTALLER_DIR/summary.sh" || return 1
+    # shellcheck disable=SC1091
+    . "$INSTALLER_DIR/plan.sh" || return 1
+}
 
 usage() {
     cat <<EOF
@@ -120,11 +158,140 @@ cmd_exists() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { apk info -e "$1" >/dev/null 2>&1; }
 pkg_exists() { apk search -x "$1" >/dev/null 2>&1; }
 
+
 populate_defaults() {
     if [ -z "${PRIMARY_HOME:-}" ] && [ -n "${PRIMARY_USER:-}" ]; then
-        PRIMARY_HOME="/home/$PRIMARY_USER"
+        if [ "$PRIMARY_USER" = "root" ]; then
+            PRIMARY_HOME="/root"
+        else
+            PRIMARY_HOME="/home/$PRIMARY_USER"
+        fi
     fi
 }
+
+apply_guided_state_to_runtime() {
+    state_load || return 1
+
+    ROOT_ONLY="$(state_get ROOT_ONLY 2>/dev/null || true)"
+    state_primary_user="$(state_get PRIMARY_USER 2>/dev/null || true)"
+    state_primary_home="$(state_get PRIMARY_HOME 2>/dev/null || true)"
+
+    if [ "$ROOT_ONLY" = "yes" ]; then
+        PRIMARY_USER="root"
+        PRIMARY_HOME="/root"
+        CONFIGURE_ROOT="yes"
+    else
+        [ -n "$state_primary_user" ] && PRIMARY_USER="$state_primary_user"
+        [ -n "$state_primary_home" ] && PRIMARY_HOME="$state_primary_home"
+        CONFIGURE_ROOT="$(state_get CONFIGURE_ROOT 2>/dev/null || true)"
+    fi
+
+    RUN_SHELLY="$(state_get RUN_SHELLY 2>/dev/null || true)"
+    PACKAGE_MODE="$(state_get PACKAGE_MODE 2>/dev/null || true)"
+    PACKAGE_PROFILE="$(state_get PACKAGE_PROFILE 2>/dev/null || true)"
+    SELECTED_PACKAGE_CATEGORIES="$(state_get SELECTED_PACKAGE_CATEGORIES 2>/dev/null || true)"
+    SELECTED_PACKAGES="$(state_get SELECTED_PACKAGES 2>/dev/null || true)"
+    EXCLUDED_PACKAGES="$(state_get EXCLUDED_PACKAGES 2>/dev/null || true)"
+    EDITOR_CHOICE="$(state_get EDITOR_CHOICE 2>/dev/null || true)"
+    INSTALL_EDITOR_CONFIG="$(state_get INSTALL_EDITOR_CONFIG 2>/dev/null || true)"
+    INSTALL_EDITOR_PLUGINS="$(state_get INSTALL_EDITOR_PLUGINS 2>/dev/null || true)"
+    EDITOR_PROFILE="$(state_get EDITOR_PROFILE 2>/dev/null || true)"
+    INSTALL_ALIASES="$(state_get INSTALL_ALIASES 2>/dev/null || true)"
+    INSTALL_SSH_CLIENT="$(state_get INSTALL_SSH_CLIENT 2>/dev/null || true)"
+    INSTALL_SSHD="$(state_get INSTALL_SSHD 2>/dev/null || true)"
+    SSHD_PORT="$(state_get SSHD_PORT 2>/dev/null || true)"
+    SSHD_ALLOW_ROOT="$(state_get SSHD_ALLOW_ROOT 2>/dev/null || true)"
+    SSHD_PASSWORD_AUTH="$(state_get SSHD_PASSWORD_AUTH 2>/dev/null || true)"
+    SSHD_HOTSPOT_BYPASS="$(state_get SSHD_HOTSPOT_BYPASS 2>/dev/null || true)"
+    ENABLE_SSHD_SERVICE="$(state_get ENABLE_SSHD_SERVICE 2>/dev/null || true)"
+    START_SSHD_NOW="$(state_get START_SSHD_NOW 2>/dev/null || true)"
+    ENABLED_SERVICES="$(state_get ENABLED_SERVICES 2>/dev/null || true)"
+    START_NOW_SERVICES="$(state_get START_NOW_SERVICES 2>/dev/null || true)"
+    INSTALL_SUDO="$(state_get INSTALL_SUDO 2>/dev/null || true)"
+    INSTALL_DOAS="$(state_get INSTALL_DOAS 2>/dev/null || true)"
+    INSTALL_MANPAGES="$(state_get INSTALL_MANPAGES 2>/dev/null || true)"
+    INSTALL_COMPLETIONS="$(state_get INSTALL_COMPLETIONS 2>/dev/null || true)"
+    INSTALL_DOC_WRAPPER="$(state_get INSTALL_DOC_WRAPPER 2>/dev/null || true)"
+    INSTALL_COMPLETION_WRAPPER="$(state_get INSTALL_COMPLETION_WRAPPER 2>/dev/null || true)"
+    GUIDED_PLAN_ACTIVE=1
+    export GUIDED_PLAN_ACTIVE
+    populate_defaults
+}
+
+package_category_members() {
+    category="$1"
+    case "$category" in
+        core) printf '%s\n' 'curl git wget less grep sed coreutils util-linux diffutils findutils file patch unzip zip shadow jq' ;;
+        network) printf '%s\n' 'bind-tools busybox-extras iproute2 net-tools' ;;
+        ssh) printf '%s\n' 'openssh-server openssh-client-default' ;;
+        editors) printf '%s\n' 'vim neovim nano' ;;
+        terminal_tools) printf '%s\n' 'tmux htop ripgrep fd tree fzf zoxide neofetch' ;;
+        services) printf '%s\n' 'openrc util-linux-openrc iptables-openrc' ;;
+        docs) printf '%s\n' 'mandoc man-pages less-doc' ;;
+        privilege) printf '%s\n' 'sudo doas' ;;
+        *) printf '%s\n' '' ;;
+    esac
+}
+
+append_unique_words() {
+    existing="$1"
+    shift
+    for word in "$@"; do
+        [ -n "$word" ] || continue
+        case " $existing " in
+            *" $word "*) ;;
+            *) existing="${existing:+$existing }$word" ;;
+        esac
+    done
+    printf '%s\n' "$existing"
+}
+
+build_selected_package_list_from_state() {
+    selected=""
+
+    case "${PACKAGE_MODE:-recommended}" in
+        recommended|category)
+            categories="${SELECTED_PACKAGE_CATEGORIES:-core,network,ssh,editors}"
+            old_ifs=$IFS
+            IFS=,
+            set -- $categories
+            IFS=$old_ifs
+            for category in "$@"; do
+                category=$(printf '%s' "$category" | sed 's/^ *//; s/ *$//')
+                members=$(package_category_members "$category")
+                for pkg in $members; do
+                    selected=$(append_unique_words "$selected" "$pkg")
+                done
+            done
+            ;;
+        package)
+            for pkg in ${SELECTED_PACKAGES:-}; do
+                selected=$(append_unique_words "$selected" "$pkg")
+            done
+            ;;
+        skip) ;;
+    esac
+
+    selected=$(append_unique_words "$selected" shadow)
+    [ "${INSTALL_SSH_CLIENT:-yes}" = "yes" ] && selected=$(append_unique_words "$selected" openssh-client-default)
+    if [ "${INSTALL_SSHD:-yes}" = "yes" ]; then
+        selected=$(append_unique_words "$selected" openssh-server openrc util-linux-openrc iptables-openrc)
+    fi
+    [ "${INSTALL_SUDO:-yes}" = "yes" ] && selected=$(append_unique_words "$selected" sudo)
+    [ "${INSTALL_DOAS:-yes}" = "yes" ] && selected=$(append_unique_words "$selected" doas)
+    [ "${INSTALL_MANPAGES:-yes}" = "yes" ] && selected=$(append_unique_words "$selected" mandoc man-pages less-doc)
+
+    printf '%s\n' "$selected"
+}
+
+run_pkg_install_list() {
+    pkg_list="$1"
+    [ -n "$pkg_list" ] || return 0
+    for pkg in $pkg_list; do
+        pkg_install_alias "$pkg" "$pkg"
+    done
+}
+
 
 tty_available() { [ -r /dev/tty ] && [ -w /dev/tty ]; }
 
@@ -249,49 +416,65 @@ collect_config() {
         warn "Invalid hostname."
     done
 
-    while :; do
-        old_user="$PRIMARY_USER"
-        PRIMARY_USER="$(prompt_text "Primary username" "$PRIMARY_USER")"
-        is_valid_username "$PRIMARY_USER" || { warn "Invalid username."; continue; }
-        if [ -z "$PRIMARY_HOME" ] || [ "$PRIMARY_HOME" = "/home/$old_user" ]; then
-            PRIMARY_HOME="/home/$PRIMARY_USER"
-        fi
-        break
-    done
-
-    while :; do
-        PRIMARY_HOME="$(prompt_text "Primary home directory" "$PRIMARY_HOME")"
-        is_valid_abs_path "$PRIMARY_HOME" && break
-        warn "Use an absolute path like /home/$PRIMARY_USER"
-    done
-
-    PRIMARY_PASSWORD="$(prompt_password_confirmed "$PRIMARY_USER")"
-    ROOT_PASSWORD="$(prompt_password_confirmed "root")"
-
-    while :; do
-        ISH_LISTEN_PORT="$(prompt_text "iSH sshd listen port" "$ISH_LISTEN_PORT")"
-        is_valid_port "$ISH_LISTEN_PORT" && break
-        warn "Port must be 1-65535."
-    done
-
-    ISH_HOTSPOT_IP="$(prompt_text "Expected iSH hotspot IP used by the home PC" "$ISH_HOTSPOT_IP")"
-
-    HOME_PC_HOST="$(prompt_text "Home PC SSH host/IP for ssh-home (leave blank to skip ssh-home profile)" "$HOME_PC_HOST")"
-
-    if [ -n "$HOME_PC_HOST" ]; then
-        HOME_PC_USER="$(prompt_text "Home PC SSH username for ssh-home" "$HOME_PC_USER")"
+    if [ "${GUIDED_PLAN_ACTIVE:-0}" != "1" ]; then
         while :; do
-            HOME_PC_PORT="$(prompt_text "Home PC SSH port for ssh-home" "$HOME_PC_PORT")"
-            is_valid_port "$HOME_PC_PORT" && break
-            warn "Port must be 1-65535."
+            old_user="$PRIMARY_USER"
+            PRIMARY_USER="$(prompt_text "Primary username" "$PRIMARY_USER")"
+            is_valid_username "$PRIMARY_USER" || { warn "Invalid username."; continue; }
+            if [ -z "$PRIMARY_HOME" ] || [ "$PRIMARY_HOME" = "/home/$old_user" ]; then
+                if [ "$PRIMARY_USER" = "root" ]; then
+                    PRIMARY_HOME="/root"
+                else
+                    PRIMARY_HOME="/home/$PRIMARY_USER"
+                fi
+            fi
+            break
+        done
+
+        while :; do
+            PRIMARY_HOME="$(prompt_text "Primary home directory" "$PRIMARY_HOME")"
+            is_valid_abs_path "$PRIMARY_HOME" && break
+            warn "Use an absolute path like /home/$PRIMARY_USER"
         done
     fi
 
-    while :; do
-        PC_SOCKS_PORT="$(prompt_text "SOCKS5 port to use on the home PC for ish-hotspot" "$PC_SOCKS_PORT")"
-        is_valid_port "$PC_SOCKS_PORT" && break
-        warn "Port must be 1-65535."
-    done
+    if [ "$PRIMARY_USER" = "root" ]; then
+        ROOT_PASSWORD="$(prompt_password_confirmed "root")"
+        PRIMARY_PASSWORD="$ROOT_PASSWORD"
+    else
+        PRIMARY_PASSWORD="$(prompt_password_confirmed "$PRIMARY_USER")"
+        ROOT_PASSWORD="$(prompt_password_confirmed "root")"
+    fi
+
+    if [ "${INSTALL_SSHD:-yes}" = "yes" ]; then
+        [ -n "${SSHD_PORT:-}" ] && ISH_LISTEN_PORT="$SSHD_PORT"
+        while :; do
+            ISH_LISTEN_PORT="$(prompt_text "iSH sshd listen port" "$ISH_LISTEN_PORT")"
+            is_valid_port "$ISH_LISTEN_PORT" && break
+            warn "Port must be 1-65535."
+        done
+
+        ISH_HOTSPOT_IP="$(prompt_text "Expected iSH hotspot IP used by the home PC" "$ISH_HOTSPOT_IP")"
+    fi
+
+    if [ "${INSTALL_SSH_CLIENT:-yes}" = "yes" ]; then
+        HOME_PC_HOST="$(prompt_text "Home PC SSH host/IP for ssh-home (leave blank to skip ssh-home profile)" "$HOME_PC_HOST")"
+
+        if [ -n "$HOME_PC_HOST" ]; then
+            HOME_PC_USER="$(prompt_text "Home PC SSH username for ssh-home" "$HOME_PC_USER")"
+            while :; do
+                HOME_PC_PORT="$(prompt_text "Home PC SSH port for ssh-home" "$HOME_PC_PORT")"
+                is_valid_port "$HOME_PC_PORT" && break
+                warn "Port must be 1-65535."
+            done
+        fi
+
+        while :; do
+            PC_SOCKS_PORT="$(prompt_text "SOCKS5 port to use on the home PC for ish-hotspot" "$PC_SOCKS_PORT")"
+            is_valid_port "$PC_SOCKS_PORT" && break
+            warn "Port must be 1-65535."
+        done
+    fi
 
     say ""
     say "Summary"
@@ -320,7 +503,7 @@ collect_config() {
 validate_config() {
     populate_defaults
     is_valid_hostname "$ISH_HOSTNAME" || { err "Invalid ISH_HOSTNAME"; exit 1; }
-    is_valid_username "$PRIMARY_USER" || { err "Invalid PRIMARY_USER"; exit 1; }
+    [ "$PRIMARY_USER" = "root" ] || is_valid_username "$PRIMARY_USER" || { err "Invalid PRIMARY_USER"; exit 1; }
     is_valid_abs_path "$PRIMARY_HOME" || { err "Invalid PRIMARY_HOME"; exit 1; }
     if [ "$DRY_RUN" != "1" ]; then
         [ -n "$PRIMARY_PASSWORD" ] || { err "PRIMARY_PASSWORD cannot be empty"; exit 1; }
@@ -711,16 +894,20 @@ configure_sudo_doas() {
         info "[dry-run] would configure sudo/doas policy"
         return 0
     fi
-    if cmd_exists sudo; then
+    if [ "${INSTALL_SUDO:-yes}" = "yes" ] && cmd_exists sudo; then
         mkdir -p /etc/sudoers.d
         printf '%%wheel ALL=(ALL) ALL\n' > /etc/sudoers.d/wheel
         chmod 440 /etc/sudoers.d/wheel
         ok "Configured sudo"
+    else
+        info "Skipping sudo configuration"
     fi
-    if cmd_exists doas; then
+    if [ "${INSTALL_DOAS:-yes}" = "yes" ] && cmd_exists doas; then
         printf 'permit persist :wheel\n' > /etc/doas.conf
         chmod 0400 /etc/doas.conf
         ok "Configured doas"
+    else
+        info "Skipping doas configuration"
     fi
 }
 
@@ -754,53 +941,81 @@ ensure_sshd_config_key() {
 }
 
 configure_sshd_server() {
+    if [ "${INSTALL_SSHD:-yes}" != "yes" ]; then
+        info "Guided plan skipped sshd server configuration"
+        return 0
+    fi
+
+    state_mark_step_started sshd 2>/dev/null || true
     run_cmd mkdir -p /etc/ssh /root/.ssh "$PRIMARY_HOME/.ssh"
     run_cmd chmod 700 /root/.ssh "$PRIMARY_HOME/.ssh" 2>/dev/null || true
     run_cmd chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
 
     generate_host_keys_if_needed
 
+    sshd_port="${SSHD_PORT:-$ISH_LISTEN_PORT}"
+    [ -n "$sshd_port" ] && ISH_LISTEN_PORT="$sshd_port"
+
     ensure_sshd_config_key "Port" "$ISH_LISTEN_PORT"
     ensure_sshd_config_key "ListenAddress" "0.0.0.0"
     ensure_sshd_config_key "AllowTcpForwarding" "yes"
-    if [ "$SSH_RELAXED" = "1" ]; then
+
+    if [ "${SSHD_HOTSPOT_BYPASS:-no}" = "yes" ] || [ "$SSH_RELAXED" = "1" ]; then
         ensure_sshd_config_key "GatewayPorts" "yes"
-        ensure_sshd_config_key "PermitRootLogin" "yes"
-        ensure_sshd_config_key "PasswordAuthentication" "yes"
         ensure_sshd_config_key "PermitTunnel" "yes"
     else
         ensure_sshd_config_key "GatewayPorts" "no"
-        ensure_sshd_config_key "PermitRootLogin" "no"
-        ensure_sshd_config_key "PasswordAuthentication" "yes"
         ensure_sshd_config_key "PermitTunnel" "no"
     fi
+
+    if [ "${SSHD_ALLOW_ROOT:-no}" = "yes" ]; then
+        ensure_sshd_config_key "PermitRootLogin" "yes"
+    else
+        ensure_sshd_config_key "PermitRootLogin" "no"
+    fi
+
+    if [ "${SSHD_PASSWORD_AUTH:-yes}" = "yes" ]; then
+        ensure_sshd_config_key "PasswordAuthentication" "yes"
+    else
+        ensure_sshd_config_key "PasswordAuthentication" "no"
+    fi
+
     ensure_sshd_config_key "PubkeyAuthentication" "yes"
     ensure_sshd_config_key "PermitEmptyPasswords" "no"
     ensure_sshd_config_key "Compression" "no"
     ensure_sshd_config_key "PermitTTY" "yes"
     ok "Configured sshd server"
+    state_mark_step_done sshd 2>/dev/null || true
 }
 
+
 configure_openrc_and_start_sshd() {
-    if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] would enable and start sshd"
+    if [ "${INSTALL_SSHD:-yes}" != "yes" ]; then
+        info "Guided plan skipped sshd service enable/start"
         return 0
     fi
-    if cmd_exists rc-update; then
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would apply OpenRC service plan: enable=${ENABLE_SSHD_SERVICE:-yes} start=${START_SSHD_NOW:-yes}"
+        return 0
+    fi
+    if [ "${ENABLE_SSHD_SERVICE:-yes}" = "yes" ] && cmd_exists rc-update; then
         rc-update add sshd default >/dev/null 2>&1 || true
     fi
-    if cmd_exists service; then
-        run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 || true
+    if [ "${START_SSHD_NOW:-yes}" = "yes" ]; then
+        if cmd_exists service; then
+            run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 || true
+        fi
+        if cmd_exists rc-service; then
+            run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 || true
+        fi
+        if cmd_exists sshd; then
+            run_cmd pkill sshd >/dev/null 2>&1 || true
+            run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 || true
+        fi
     fi
-    if cmd_exists rc-service; then
-        run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 || true
-    fi
-    if cmd_exists sshd; then
-        run_cmd pkill sshd >/dev/null 2>&1 || true
-        run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 || true
-    fi
-    ok "Attempted to start sshd"
+    ok "Applied sshd service plan"
 }
+
 
 fix_permissions() {
     if [ "$DRY_RUN" = "1" ]; then
@@ -845,6 +1060,402 @@ fix_permissions() {
     ok "Fixed permissions"
 }
 
+sync_shelly_state_into_installer_state() {
+    read_shelly_selection_state || return 1
+    state_set INSTALL_SHELLS "$INSTALL_SHELLS_SELECTED"
+    state_set USER_DEFAULT_SHELL "$USER_DEFAULT_SHELL"
+    state_set ROOT_DEFAULT_SHELL "$ROOT_DEFAULT_SHELL"
+    state_set CONFIGURED_SHELLS "$CONFIGURED_SHELLS"
+}
+
+ensure_profile_d_environment() {
+    target_home="$1"
+    target_user="$2"
+    profile_d_dir="$target_home/.config/profile.d"
+    editor_env_file="$profile_d_dir/editor.sh"
+
+    run_cmd mkdir -p "$profile_d_dir" || return 1
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $editor_env_file"
+    else
+        cat > "$editor_env_file" <<EOF
+export EDITOR=${EDITOR_CHOICE}
+export VISUAL=${EDITOR_CHOICE}
+EOF
+        chown -R "$target_user:$target_user" "$target_home/.config" 2>/dev/null || true
+    fi
+
+    shell_rc_files=".profile .shrc .bashrc .zshrc"
+    for rc_name in $shell_rc_files; do
+        rc_path="$target_home/$rc_name"
+        [ -f "$rc_path" ] || continue
+        if grep -Fq '. "$HOME/.config/profile.d/editor.sh"' "$rc_path" 2>/dev/null; then
+            continue
+        fi
+        if [ "$DRY_RUN" = "1" ]; then
+            info "[dry-run] append editor env hook to $rc_path"
+        else
+            printf '\n[ -r "$HOME/.config/profile.d/editor.sh" ] && . "$HOME/.config/profile.d/editor.sh"\n' >> "$rc_path"
+            chown "$target_user:$target_user" "$rc_path" 2>/dev/null || true
+        fi
+    done
+}
+
+write_vimrc_for_user() {
+    target_home="$1"
+    target_user="$2"
+    vimrc_path="$target_home/.vimrc"
+    vim_dir="$target_home/.vim"
+
+    run_cmd mkdir -p "$vim_dir" || return 1
+    if [ "${INSTALL_EDITOR_PLUGINS:-no}" = "yes" ]; then
+        run_cmd mkdir -p "$vim_dir/pack/iosish/start/commentary/plugin" || return 1
+        if [ "$DRY_RUN" = "1" ]; then
+            info "[dry-run] write lightweight vim plugin stub"
+        else
+            cat > "$vim_dir/pack/iosish/start/commentary/plugin/commentary.vim" <<'EOF'
+" Minimal placeholder plugin stub for future repo-managed vim plugins.
+command! IOSiSHCommentary echo "Plugin scaffold installed"
+EOF
+        fi
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $vimrc_path"
+        return 0
+    fi
+
+    cat > "$vimrc_path" <<EOF
+set nocompatible
+syntax on
+set number
+set backspace=indent,eol,start
+set wildmenu
+set showcmd
+set ruler
+set hidden
+set ignorecase
+set smartcase
+set incsearch
+set hlsearch
+set tabstop=4
+set shiftwidth=4
+set expandtab
+set autoindent
+set mouse=
+" profile: ${EDITOR_PROFILE:-recommended}
+EOF
+    if [ "${INSTALL_EDITOR_PLUGINS:-no}" = "yes" ]; then
+        printf 'set runtimepath^=$HOME/.vim/pack/iosish/start/commentary\npackloadall\n' >> "$vimrc_path"
+    fi
+    chown -R "$target_user:$target_user" "$vimrc_path" "$vim_dir" 2>/dev/null || true
+}
+
+write_nvim_config_for_user() {
+    target_home="$1"
+    target_user="$2"
+    nvim_dir="$target_home/.config/nvim"
+    init_lua="$nvim_dir/init.lua"
+
+    run_cmd mkdir -p "$nvim_dir" || return 1
+    if [ "${INSTALL_EDITOR_PLUGINS:-no}" = "yes" ]; then
+        run_cmd mkdir -p "$nvim_dir/pack/iosish/start/commentary/plugin" || return 1
+        if [ "$DRY_RUN" = "1" ]; then
+            info "[dry-run] write lightweight neovim plugin stub"
+        else
+            cat > "$nvim_dir/pack/iosish/start/commentary/plugin/commentary.lua" <<'EOF'
+vim.api.nvim_create_user_command("IOSiSHCommentary", function()
+  print("Plugin scaffold installed")
+end, {})
+EOF
+        fi
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $init_lua"
+        return 0
+    fi
+
+    cat > "$init_lua" <<EOF
+vim.opt.number = true
+vim.opt.ignorecase = true
+vim.opt.smartcase = true
+vim.opt.hlsearch = true
+vim.opt.incsearch = true
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 4
+vim.opt.tabstop = 4
+vim.opt.mouse = ""
+-- profile: ${EDITOR_PROFILE:-recommended}
+EOF
+    if [ "${INSTALL_EDITOR_PLUGINS:-no}" = "yes" ]; then
+        printf 'vim.opt.runtimepath:prepend(vim.fn.expand("~/.config/nvim/pack/iosish/start/commentary"))\nvim.cmd("packloadall")\n' >> "$init_lua"
+    fi
+    chown -R "$target_user:$target_user" "$target_home/.config/nvim" 2>/dev/null || true
+}
+
+write_nano_config_for_user() {
+    target_home="$1"
+    target_user="$2"
+    nanorc_path="$target_home/.nanorc"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $nanorc_path"
+        return 0
+    fi
+
+    cat > "$nanorc_path" <<EOF
+set linenumbers
+set mouse
+set tabsize 4
+set autoindent
+set smooth
+EOF
+    chown "$target_user:$target_user" "$nanorc_path" 2>/dev/null || true
+}
+
+run_editor_setup_from_state() {
+    state_mark_step_started editor || return 1
+
+    if [ "${EDITOR_CHOICE:-skip}" = "skip" ]; then
+        info "Guided plan skipped editor setup"
+        state_mark_step_done editor || return 1
+        return 0
+    fi
+
+    case "$EDITOR_CHOICE" in
+        vim) pkg_install_alias "vim" vim ;;
+        neovim) pkg_install_alias "neovim" neovim ;;
+        nano) pkg_install_alias "nano" nano ;;
+        *) warn "Unknown editor choice: $EDITOR_CHOICE"; state_mark_failed editor; return 1 ;;
+    esac
+
+    ensure_profile_d_environment "$PRIMARY_HOME" "$PRIMARY_USER" || { state_mark_failed editor; return 1; }
+    [ "$PRIMARY_USER" = "root" ] || ensure_profile_d_environment /root root || true
+
+    if [ "${INSTALL_EDITOR_CONFIG:-yes}" = "yes" ]; then
+        case "$EDITOR_CHOICE" in
+            vim) write_vimrc_for_user "$PRIMARY_HOME" "$PRIMARY_USER" || { state_mark_failed editor; return 1; } ;;
+            neovim) write_nvim_config_for_user "$PRIMARY_HOME" "$PRIMARY_USER" || { state_mark_failed editor; return 1; } ;;
+            nano) write_nano_config_for_user "$PRIMARY_HOME" "$PRIMARY_USER" || { state_mark_failed editor; return 1; } ;;
+        esac
+    else
+        info "Guided plan skipped editor config files"
+    fi
+
+    state_mark_step_done editor || return 1
+}
+
+run_user_setup_from_state() {
+    state_mark_step_started users || return 1
+    set_hostname_files || { state_mark_failed users; return 1; }
+    ensure_primary_user || { state_mark_failed users; return 1; }
+    set_passwords || { state_mark_failed users; return 1; }
+    state_mark_step_done users || return 1
+}
+
+run_shell_setup_from_state() {
+    state_mark_step_started shells || return 1
+    if [ "${RUN_SHELLY:-yes}" = "yes" ]; then
+        run_shelly_setup || { state_mark_failed shells; return 1; }
+        sync_shelly_state_into_installer_state || warn "Could not import Shelly state into installer state"
+    else
+        info "Guided plan skipped Shelly shell configuration"
+    fi
+    state_mark_step_done shells || return 1
+}
+
+run_alias_setup_from_state() {
+    state_mark_step_started extras || return 1
+    if [ "${INSTALL_ALIASES:-no}" = "yes" ]; then
+        read_shelly_selection_state || {
+            warn "Shelly state file missing; skipping optional alias integration"
+            state_mark_step_done extras || return 1
+            return 0
+        }
+        for shell_name in zsh bash fish; do
+            case " $CONFIGURED_SHELLS " in
+                *" $shell_name "*|*"$shell_name"*)
+                    install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
+                    ;;
+            esac
+        done
+    else
+        info "Guided plan skipped optional alias integration"
+    fi
+    state_mark_step_done extras || return 1
+}
+
+run_package_setup_from_state() {
+    state_mark_step_started packages || return 1
+    info "Updating apk indexes"
+    run_cmd apk update >/dev/null 2>&1 || warn "apk update failed"
+    pkg_list=$(build_selected_package_list_from_state)
+    if [ -n "$pkg_list" ]; then
+        info "Installing state-selected packages"
+        run_pkg_install_list "$pkg_list"
+    else
+        info "Guided plan selected no extra packages"
+    fi
+    state_mark_step_done packages || return 1
+}
+
+run_ssh_setup_from_state() {
+    state_mark_step_started ssh || return 1
+    if [ "${INSTALL_SSH_CLIENT:-yes}" = "yes" ]; then
+        ensure_shared_ssh_keypair
+        write_ish_client_config
+        write_pc_side_snippets
+        link_root_to_shared_assets
+    else
+        info "Guided plan skipped SSH client configuration"
+    fi
+    state_mark_step_done ssh || return 1
+}
+
+run_privilege_setup_from_state() {
+    state_mark_step_started privilege || return 1
+    if [ "${INSTALL_SUDO:-yes}" = "yes" ] || [ "${INSTALL_DOAS:-yes}" = "yes" ]; then
+        configure_sudo_doas || { state_mark_failed privilege; return 1; }
+    else
+        info "Guided plan skipped sudo/doas configuration"
+    fi
+    state_mark_step_done privilege || return 1
+}
+
+install_completions_from_state() {
+    [ "${INSTALL_COMPLETIONS:-yes}" = "yes" ] || {
+        info "Guided plan skipped shell completions"
+        return 0
+    }
+    read_shelly_selection_state || return 0
+    case " $CONFIGURED_SHELLS " in
+        *" zsh "*|*"zsh"*) pkg_install_alias "zsh-completions" zsh-completions ;;
+    esac
+    case " $CONFIGURED_SHELLS " in
+        *" bash "*|*"bash"*) pkg_install_alias "bash-completion" bash-completion ;;
+    esac
+}
+
+write_iosish_docs_wrapper() {
+    wrapper_path="$PRIMARY_HOME/.local/bin/iosish-docs"
+    run_cmd mkdir -p "$PRIMARY_HOME/.local/bin" || return 1
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $wrapper_path"
+        return 0
+    fi
+    cat > "$wrapper_path" <<'EOF'
+#!/bin/sh
+if [ "$#" -eq 0 ]; then
+    echo "usage: iosish-docs <package> [package...]" >&2
+    exit 1
+fi
+for pkg in "$@"; do
+    apk add --no-cache "$pkg-doc" 2>/dev/null || echo "No -doc package available for $pkg" >&2
+done
+EOF
+    chmod 755 "$wrapper_path"
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$wrapper_path" 2>/dev/null || true
+}
+
+write_iosish_completion_wrapper() {
+    wrapper_path="$PRIMARY_HOME/.local/bin/iosish-completions"
+    run_cmd mkdir -p "$PRIMARY_HOME/.local/bin" || return 1
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $wrapper_path"
+        return 0
+    fi
+    cat > "$wrapper_path" <<'EOF'
+#!/bin/sh
+set -eu
+for shell_name in "$@"; do
+    case "$shell_name" in
+        zsh) apk add --no-cache zsh-completions ;;
+        bash) apk add --no-cache bash-completion ;;
+        *) echo "unsupported shell: $shell_name" >&2 ;;
+    esac
+done
+EOF
+    chmod 755 "$wrapper_path"
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$wrapper_path" 2>/dev/null || true
+}
+
+run_extras_setup_from_state() {
+    state_mark_step_started extras || return 1
+    if [ "${INSTALL_MANPAGES:-yes}" = "yes" ]; then
+        install_docs_for_installed_packages
+    else
+        info "Guided plan skipped manpages/docs installation"
+    fi
+    install_completions_from_state || true
+    if [ "${INSTALL_DOC_WRAPPER:-no}" = "yes" ]; then
+        write_iosish_docs_wrapper || true
+    fi
+    if [ "${INSTALL_COMPLETION_WRAPPER:-no}" = "yes" ]; then
+        write_iosish_completion_wrapper || true
+    fi
+    state_mark_step_done extras || return 1
+}
+
+run_service_setup_from_state() {
+    state_mark_step_started services || return 1
+    if [ -n "${ENABLED_SERVICES:-}" ] || [ -n "${START_NOW_SERVICES:-}" ] || [ "${INSTALL_SSHD:-yes}" = "yes" ]; then
+        configure_openrc_and_start_sshd || { state_mark_failed services; return 1; }
+    else
+        info "Guided plan skipped service enablement"
+    fi
+    state_mark_step_done services || return 1
+}
+
+run_guided_planning_phase() {
+    load_guided_installer_modules || return 1
+
+    state_ensure_file || return 1
+
+    if ! state_has_key INSTALL_STATUS; then
+        state_init_defaults || return 1
+    fi
+
+    state_load || return 1
+
+    printf '
+'
+    printf '== iOSiSH Guided Installer Planning ==
+'
+
+    install_status=$(state_get INSTALL_STATUS)
+
+    if [ "$install_status" = "in_progress" ] || [ "$install_status" = "failed" ]; then
+        resume_choice=$(prompt_yes_no "Existing installer state found. Resume using saved state?" "yes") || return 1
+        if [ "$resume_choice" = "no" ]; then
+            reset_choice=$(prompt_yes_no "Discard saved state and start over?" "yes") || return 1
+            [ "$reset_choice" = "yes" ] || return 1
+            state_reset || return 1
+            state_load || return 1
+        fi
+    fi
+
+    run_planning_phase || return 1
+    state_load || return 1
+
+    show_plan_summary
+    show_progress_summary
+
+    summary_action=$(prompt_summary_action) || return 1
+    case "$summary_action" in
+        proceed) ;;
+        save-and-quit)
+            state_set INSTALL_STATUS "planned" || true
+            info "Saved guided installer plan to $INSTALLER_STATE_FILE"
+            return 2
+            ;;
+        *) return 1 ;;
+    esac
+
+    apply_guided_state_to_runtime || return 1
+    return 0
+}
+
 self_test() {
     say ""
     say "Post-run self-test:"
@@ -860,66 +1471,34 @@ self_test() {
 
 main() {
     parse_args "$@"
+    run_guided_planning_phase
+    planning_rc=$?
+    if [ "$planning_rc" -eq 2 ]; then
+        ok "Guided installer plan saved. Exiting before execution."
+        exit 0
+    elif [ "$planning_rc" -ne 0 ]; then
+        err "guided planning phase failed or was cancelled"
+        exit 1
+    fi
     require_root
+    apply_guided_state_to_runtime || {
+        err "failed to apply guided installer state"
+        exit 1
+    }
     collect_config
     validate_config
 
-    info "Updating apk indexes"
-    run_cmd apk update >/dev/null 2>&1 || warn "apk update failed"
-
-    info "Installing packages"
-    pkg_install_alias "curl" curl
-    pkg_install_alias "git" git
-    pkg_install_alias "wget" wget
-    pkg_install_alias "nano" nano
-    pkg_install_alias "neovim" neovim
-    pkg_install_alias "neofetch" neofetch
-    pkg_install_alias "OpenSSH server" openssh-server openssh
-    pkg_install_alias "OpenSSH client" openssh-client-default openssh-client openssh
-    pkg_install_alias "less" less
-    pkg_install_alias "zoxide" zoxide
-    pkg_install_alias "tmux" tmux
-    pkg_install_alias "htop" htop
-    pkg_install_alias "ripgrep" ripgrep
-    pkg_install_alias "fd" fd
-    pkg_install_alias "tree" tree
-    pkg_install_alias "unzip" unzip
-    pkg_install_alias "zip" zip
-    pkg_install_alias "grep" grep
-    pkg_install_alias "sed" sed
-    pkg_install_alias "coreutils" coreutils
-    pkg_install_alias "util-linux" util-linux
-    pkg_install_alias "diffutils" diffutils
-    pkg_install_alias "findutils" findutils
-    pkg_install_alias "file" file
-    pkg_install_alias "patch" patch
-    pkg_install_alias "sudo" sudo
-    pkg_install_alias "doas" doas
-    pkg_install_alias "shadow" shadow
-    pkg_install_alias "openrc" openrc
-    pkg_install_alias "util-linux-openrc" util-linux-openrc
-    pkg_install_alias "iptables-openrc" iptables-openrc
-    pkg_install_alias "man-pages" man-pages
-    pkg_install_alias "mandoc" mandoc
-    pkg_install_alias "less-doc" less-doc
-    pkg_install_alias "fzf" fzf
-    pkg_install_alias "jq" jq
-
-    install_docs_for_installed_packages
-
-    set_hostname_files
-    ensure_primary_user
-    set_passwords
-    run_shelly_setup
-    prompt_for_alias_install
-    ensure_shared_ssh_keypair
-    write_ish_client_config
-    write_pc_side_snippets
-    link_root_to_shared_assets
-    configure_sudo_doas
+    run_package_setup_from_state || exit 1
+    run_editor_setup_from_state || exit 1
+    run_user_setup_from_state || exit 1
+    run_shell_setup_from_state || exit 1
+    run_alias_setup_from_state || exit 1
+    run_ssh_setup_from_state || exit 1
+    run_privilege_setup_from_state || exit 1
     configure_sshd_server
     fix_permissions
-    configure_openrc_and_start_sshd
+    run_service_setup_from_state || exit 1
+    run_extras_setup_from_state || exit 1
 
     say ""
     say "============================================================"
@@ -961,6 +1540,7 @@ main() {
     say "Fresh iSH keep-awake helper:"
     say "  cat /dev/location > /dev/null &"
     self_test
+    state_mark_complete 2>/dev/null || true
 }
 
 main "$@"

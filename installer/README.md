@@ -26,3 +26,6 @@ You can override this path by exporting:
 
 ```sh
 INSTALLER_STATE_FILE=/path/to/custom-state.env
+
+
+The current planning layer also tracks system editor selection, starter editor configuration, and lightweight plugin-ready scaffolding for vim/neovim.

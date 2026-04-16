@@ -155,3 +155,25 @@ What is next:
 
 ### Remaining caution
 - The repo now matches the checklist more closely, but end-to-end runtime validation of every interactive branch still depends on a real iSH/Alpine execution environment with package/network access.
+
+## 2026-04-15 - Phase 2A wire-in
+- iOSiSH.sh now applies guided installer state to runtime before execution.
+- User/root execution, Shelly execution, alias installation, and progress markers are now state-driven.
+- Root-only planning is normalized to run with root as the effective primary user for the current execution path.
+- Existing collect_config prompts still handle SSH hostname/port/password details until those sections are fully migrated.
+
+## 2026-04-16 - package catalog planning upgrade
+- Added a real package catalog to installer/plan.sh with category descriptions and package membership.
+- Added package modes: recommended, all-categories, category, package, skip.
+- Added package profile tracking in state and summary output.
+- Aligned iOSiSH.sh package category membership with the new planner catalog.
+
+- Added Phase 4 editor subsystem scaffold: state-driven editor choice, EDITOR/VISUAL env setup, starter config writers for vim/neovim/nano, and lightweight plugin-ready scaffolding.
+
+
+## 2026-04-16 - Guided installer patch: SSHD/services/wrappers
+- Added advanced SSHD planning state keys and prompts.
+- Wired SSHD config to use state-driven port/root-login/password-auth/hotspot settings.
+- Added service enable/start state handling for sshd.
+- Added optional iosish-docs and iosish-completions wrapper writers.
+- Added summary option to save plan and quit before execution.

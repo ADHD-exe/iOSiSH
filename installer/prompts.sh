@@ -69,3 +69,20 @@ prompt_section_action() {
   prompt_choice "How would you like to handle ${section_name}?" "recommended" \
     "skip" "recommended" "customize"
 }
+
+
+prompt_text_entry() {
+  prompt_text=$1
+  default_value=$2
+
+  if [ -n "$default_value" ]; then
+    printf '%s [%s]: ' "$prompt_text" "$default_value"
+  else
+    printf '%s: ' "$prompt_text"
+  fi
+
+  read -r reply || return 1
+  [ -n "$reply" ] || reply=$default_value
+  printf '%s
+' "$reply"
+}

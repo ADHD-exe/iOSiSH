@@ -78,6 +78,18 @@ state_init_defaults() {
   state_set COLOR_OUTPUT "auto"
   state_set OUTPUT_MODE "normal"
   state_set INTERACTIVE_MODE "yes"
+
+  state_set SSHD_PORT "22"
+  state_set SSHD_ALLOW_ROOT "no"
+  state_set SSHD_PASSWORD_AUTH "yes"
+  state_set SSHD_HOTSPOT_BYPASS "no"
+  state_set ENABLE_SSHD_SERVICE "yes"
+  state_set START_SSHD_NOW "yes"
+  state_set ENABLED_SERVICES ""
+  state_set START_NOW_SERVICES ""
+
+  state_set INSTALL_DOC_WRAPPER "no"
+  state_set INSTALL_COMPLETION_WRAPPER "no"
 }
 
 state_mark_step_started() {
