@@ -1,0 +1,21 @@
+# Editors
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+
+# Shell / repo artifacts
+*.tar
+*.tar.gz
+*.tgz
+*.bak
+
+# Logs
+*.log

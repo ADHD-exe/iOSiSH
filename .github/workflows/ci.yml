@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell-and-doc-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate iOSiSH.sh syntax
+        run: sh -n iOSiSH.sh
+
+      - name: Validate shelly.sh syntax
+        run: bash -n shelly/shelly.sh
+
+      - name: Run smoke checks
+        run: ./tests/smoke.sh
+
+      - name: Validate markdown links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --verbose README.md shelly/README.md shelly/shelly-doc.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
