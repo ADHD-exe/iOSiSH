@@ -26,6 +26,8 @@ HOME_PC_USER="${HOME_PC_USER:-rabbit}"
 PC_SOCKS_PORT="${PC_SOCKS_PORT:-1080}"
 
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
+DRY_RUN="${DRY_RUN:-0}"
+SSH_RELAXED="${SSH_RELAXED:-0}"
 REPO_RAW_BASE="${REPO_RAW_BASE:-https://raw.githubusercontent.com/ADHD-exe/iOSiSH/main}"
 
 if [ -t 1 ]; then
@@ -47,6 +49,72 @@ warn() { printf '%s[WARN] %s%s\n' "$C_RED" "$*" "$C_RESET"; }
 err() { printf '%s[ERR ] %s%s\n' "$C_RED" "$*" "$C_RESET" >&2; }
 scan() { printf '%s[SCAN] %s%s\n' "$C_YELLOW" "$*" "$C_RESET"; }
 fail() { printf '%s[FAIL] %s%s\n' "$C_RED" "$*" "$C_RESET"; }
+
+usage() {
+    cat <<EOF
+Usage: iOSiSH.sh [options]
+
+Options:
+  --noninteractive       Disable prompts and require env/config values.
+  --dry-run              Print planned actions without applying system changes.
+  --ssh-relaxed          Opt into the legacy permissive SSH posture.
+  --ssh-hardened         Force the safer SSH posture (default).
+  -h, --help             Show this help text.
+
+Environment overrides remain supported, for example:
+  PRIMARY_USER, PRIMARY_PASSWORD, ROOT_PASSWORD, ISH_LISTEN_PORT, HOME_PC_HOST
+EOF
+}
+
+run_cmd() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] $*"
+        return 0
+    fi
+    "$@"
+}
+
+run_sh() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] sh -c $*"
+        return 0
+    fi
+    sh -c "$*"
+}
+
+write_file() {
+    file="$1"
+    content="$2"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] write $file"
+        return 0
+    fi
+    printf '%s' "$content" > "$file"
+}
+
+append_file() {
+    file="$1"
+    content="$2"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] append $file"
+        return 0
+    fi
+    printf '%s' "$content" >> "$file"
+}
+
+parse_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --noninteractive) NONINTERACTIVE=1 ;;
+            --dry-run) DRY_RUN=1 ;;
+            --ssh-relaxed) SSH_RELAXED=1 ;;
+            --ssh-hardened) SSH_RELAXED=0 ;;
+            -h|--help) usage; exit 0 ;;
+            *) err "Unknown option: $1"; usage; exit 1 ;;
+        esac
+        shift
+    done
+}
 
 cmd_exists() { command -v "$1" >/dev/null 2>&1; }
 pkg_installed() { apk info -e "$1" >/dev/null 2>&1; }
@@ -239,6 +307,12 @@ collect_config() {
         say "ssh-home target:      skipped"
     fi
     say "Home PC SOCKS port:   $PC_SOCKS_PORT"
+    say "Dry run:              $DRY_RUN"
+    if [ "$SSH_RELAXED" = "1" ]; then
+        say "SSH posture:          relaxed (legacy-compatible)"
+    else
+        say "SSH posture:          hardened defaults"
+    fi
     say ""
     confirm_yes "Proceed with this configuration" "Y" || { err "Aborted."; exit 1; }
 }
@@ -248,8 +322,10 @@ validate_config() {
     is_valid_hostname "$ISH_HOSTNAME" || { err "Invalid ISH_HOSTNAME"; exit 1; }
     is_valid_username "$PRIMARY_USER" || { err "Invalid PRIMARY_USER"; exit 1; }
     is_valid_abs_path "$PRIMARY_HOME" || { err "Invalid PRIMARY_HOME"; exit 1; }
-    [ -n "$PRIMARY_PASSWORD" ] || { err "PRIMARY_PASSWORD cannot be empty"; exit 1; }
-    [ -n "$ROOT_PASSWORD" ] || { err "ROOT_PASSWORD cannot be empty"; exit 1; }
+    if [ "$DRY_RUN" != "1" ]; then
+        [ -n "$PRIMARY_PASSWORD" ] || { err "PRIMARY_PASSWORD cannot be empty"; exit 1; }
+        [ -n "$ROOT_PASSWORD" ] || { err "ROOT_PASSWORD cannot be empty"; exit 1; }
+    fi
     is_valid_port "$ISH_LISTEN_PORT" || { err "Invalid ISH_LISTEN_PORT"; exit 1; }
     is_valid_port "$PC_SOCKS_PORT" || { err "Invalid PC_SOCKS_PORT"; exit 1; }
     if [ -n "$HOME_PC_HOST" ]; then
@@ -272,7 +348,7 @@ pkg_install_alias() {
         if pkg_exists "$p"; then
             found_any=1
             info "$label: installing $p"
-            if apk add --no-cache "$p"; then
+            if run_cmd apk add --no-cache "$p"; then
                 ok "$label: installed $p"
                 return 0
             fi
@@ -299,7 +375,7 @@ install_doc_package() {
     fi
 
     info "[docs] installing $doc_pkg for $source_pkg"
-    if apk add --no-cache "$doc_pkg"; then
+    if run_cmd apk add --no-cache "$doc_pkg"; then
         ok "[docs] installed $doc_pkg for $source_pkg"
         return 0
     fi
@@ -345,26 +421,30 @@ require_root() {
 ensure_group_exists() {
     grp="$1"
     grep -q "^${grp}:" /etc/group 2>/dev/null && return 0
-    addgroup "$grp" >/dev/null 2>&1 && ok "Created group: $grp" || warn "Could not create group: $grp"
+    run_cmd addgroup "$grp" >/dev/null 2>&1 && ok "Created group: $grp" || warn "Could not create group: $grp"
 }
 
 ensure_primary_user() {
     if id "$PRIMARY_USER" >/dev/null 2>&1; then
         ok "User $PRIMARY_USER already exists"
     else
-        adduser -D -h "$PRIMARY_HOME" -s /bin/sh "$PRIMARY_USER" >/dev/null 2>&1 || {
+        run_cmd adduser -D -h "$PRIMARY_HOME" -s /bin/sh "$PRIMARY_USER" >/dev/null 2>&1 || {
             err "Failed to create user $PRIMARY_USER"
             exit 1
         }
         ok "Created user $PRIMARY_USER"
     fi
-    mkdir -p "$PRIMARY_HOME"
-    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
+    run_cmd mkdir -p "$PRIMARY_HOME"
+    run_cmd chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
     ensure_group_exists wheel
-    addgroup "$PRIMARY_USER" wheel >/dev/null 2>&1 || true
+    run_cmd addgroup "$PRIMARY_USER" wheel >/dev/null 2>&1 || true
 }
 
 set_passwords() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would update passwords for root and $PRIMARY_USER"
+        return 0
+    fi
     if cmd_exists chpasswd; then
         printf 'root:%s\n%s:%s\n' "$ROOT_PASSWORD" "$PRIMARY_USER" "$PRIMARY_PASSWORD" | chpasswd >/dev/null 2>&1 \
             && ok "Set passwords for root and $PRIMARY_USER" \
@@ -375,6 +455,10 @@ set_passwords() {
 }
 
 set_hostname_files() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would write /etc/hostname and update /etc/hosts for $ISH_HOSTNAME"
+        return 0
+    fi
     printf '%s\n' "$ISH_HOSTNAME" > /etc/hostname
     if [ ! -f /etc/hosts ]; then
         printf '127.0.0.1\tlocalhost %s\n' "$ISH_HOSTNAME" > /etc/hosts
@@ -384,58 +468,6 @@ set_hostname_files() {
     ok "Updated hostname files"
 }
 
-set_shell_in_passwd() {
-    usr="$1"
-    newshell="$2"
-    grep -q "^${usr}:" /etc/passwd 2>/dev/null || return 0
-    current_shell="$(awk -F: -v u="$usr" '$1==u {print $7}' /etc/passwd 2>/dev/null)"
-    [ "$current_shell" = "$newshell" ] && return 0
-    if cmd_exists usermod; then
-        usermod -s "$newshell" "$usr" >/dev/null 2>&1 && return 0
-    fi
-    tmpf="/tmp/passwd.$$"
-    awk -F: -v OFS=: -v u="$usr" -v s="$newshell" '$1==u {$7=s} {print}' /etc/passwd > "$tmpf" && mv "$tmpf" /etc/passwd
-}
-
-write_profiles() {
-    printf '%s\n' 'exec zsh -l' > /root/.profile
-    printf '%s\n' 'exec zsh -l' > "$PRIMARY_HOME/.profile"
-    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.profile" 2>/dev/null || true
-}
-
-clone_or_update_repo() {
-    repo="$1"; dest="$2"; label="$3"
-    [ -d "$(dirname "$dest")" ] || mkdir -p "$(dirname "$dest")"
-    if [ -d "$dest/.git" ]; then
-        ok "$label already present"
-        return 0
-    fi
-    cmd_exists git || { warn "git missing: cannot install $label"; return 1; }
-    git clone --depth=1 "$repo" "$dest" >/dev/null 2>&1 && ok "Installed $label" || warn "Failed to install $label"
-}
-
-install_shell_frameworks() {
-    clone_or_update_repo "https://github.com/ohmyzsh/ohmyzsh.git" "$PRIMARY_HOME/.oh-my-zsh" "Oh My Zsh" || true
-    clone_or_update_repo "https://github.com/zdharma-continuum/zinit.git" "$PRIMARY_HOME/.local/share/zinit/zinit.git" "Zinit" || true
-    mkdir -p "$PRIMARY_HOME/.cache/zsh" "$PRIMARY_HOME/.local/share" "$PRIMARY_HOME/.ssh" "$PRIMARY_HOME/.config/zsh"
-    rm -f "$PRIMARY_HOME"/.zcompdump* "$PRIMARY_HOME/.cache/zsh"/zcompdump-* 2>/dev/null || true
-    chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.oh-my-zsh" "$PRIMARY_HOME/.local" "$PRIMARY_HOME/.cache" "$PRIMARY_HOME/.ssh" "$PRIMARY_HOME/.config" 2>/dev/null || true
-    chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
-}
-
-download_text() {
-    url="$1"
-    if cmd_exists curl; then
-        curl -fsSL "$url"
-        return $?
-    fi
-    if cmd_exists wget; then
-        wget -qO- "$url"
-        return $?
-    fi
-    return 1
-}
-
 script_dir() {
     case "$0" in
         */*) cd "$(dirname "$0")" 2>/dev/null && pwd -P ;;
@@ -443,53 +475,117 @@ script_dir() {
     esac
 }
 
-install_repo_shell_assets() {
+run_shelly_setup() {
     src_dir="$(script_dir)"
-    tmp_zshrc="/tmp/iosish.zshrc.$$"
-    tmp_aliases="/tmp/iosish.aliases.$$"
-    dst_zshrc="$PRIMARY_HOME/.zshrc"
-    dst_aliases="$PRIMARY_HOME/.config/zsh/.aliases"
+    shelly_script="$src_dir/shelly/shelly.sh"
+    [ -f "$shelly_script" ] || { err "Missing Shelly installer at $shelly_script"; exit 1; }
+    cmd_exists bash || { err "bash is required to run Shelly"; exit 1; }
 
-    rm -f "$tmp_zshrc" "$tmp_aliases"
-    mkdir -p "$(dirname "$dst_aliases")"
-
-    if [ -f "$src_dir/.zshrc" ] && [ -f "$src_dir/.aliases" ]; then
-        cp "$src_dir/.zshrc" "$tmp_zshrc" || { err "Failed to stage .zshrc from $src_dir"; exit 1; }
-        cp "$src_dir/.aliases" "$tmp_aliases" || { err "Failed to stage .aliases from $src_dir"; exit 1; }
-        info "Using bundled .zshrc and .aliases from $src_dir"
-    else
-        download_text "$REPO_RAW_BASE/.zshrc" > "$tmp_zshrc" || { err "Failed to download .zshrc from $REPO_RAW_BASE"; rm -f "$tmp_zshrc" "$tmp_aliases"; exit 1; }
-        download_text "$REPO_RAW_BASE/.aliases" > "$tmp_aliases" || { err "Failed to download .aliases from $REPO_RAW_BASE"; rm -f "$tmp_zshrc" "$tmp_aliases"; exit 1; }
-        info "Downloaded .zshrc and .aliases from $REPO_RAW_BASE"
+    info "Delegating shell installation and configuration to Shelly"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] bash $shelly_script --primary-user $PRIMARY_USER"
+        return 0
     fi
 
-    sed "s|__PRIMARY_HOME__|$PRIMARY_HOME|g" "$tmp_zshrc" > "$dst_zshrc" || { err "Failed to render .zshrc"; rm -f "$tmp_zshrc" "$tmp_aliases"; exit 1; }
-    cp "$tmp_aliases" "$dst_aliases" || { err "Failed to install .aliases"; rm -f "$tmp_zshrc" "$tmp_aliases"; exit 1; }
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        PRIMARY_HOME="$PRIMARY_HOME" NONINTERACTIVE="$NONINTERACTIVE" bash "$shelly_script" --primary-user "$PRIMARY_USER" --noninteractive --auto-install
+    else
+        PRIMARY_HOME="$PRIMARY_HOME" NONINTERACTIVE="$NONINTERACTIVE" bash "$shelly_script" --primary-user "$PRIMARY_USER"
+    fi
+    status=$?
+    [ "$status" -eq 0 ] || { err "Shelly failed with exit code $status"; exit 1; }
+    ok "Shelly finished shell setup"
+}
 
-    chown "$PRIMARY_USER:$PRIMARY_USER" "$dst_zshrc" "$dst_aliases" 2>/dev/null || true
-    chmod 644 "$dst_zshrc" "$dst_aliases"
+read_shelly_selection_state() {
+    state_file="$PRIMARY_HOME/.config/shelly/selection.env"
+    [ -f "$state_file" ] || return 1
+    INSTALL_SHELLS_SELECTED="$(awk -F= '/^INSTALL_SHELLS=/{sub(/^INSTALL_SHELLS=/,""); print; exit}' "$state_file")"
+    ROOT_DEFAULT_SHELL="$(awk -F= '/^ROOT_DEFAULT=/{sub(/^ROOT_DEFAULT=/,""); print; exit}' "$state_file")"
+    USER_DEFAULT_SHELL="$(awk -F= '/^USER_DEFAULT=/{sub(/^USER_DEFAULT=/,""); print; exit}' "$state_file")"
+    CONFIGURED_SHELLS="$(awk -F= '/^CONFIGURED_SHELLS=/{sub(/^CONFIGURED_SHELLS=/,""); print; exit}' "$state_file")"
+    return 0
+}
 
-    rm -f "$tmp_zshrc" "$tmp_aliases"
-    ok "Installed repo-managed Zsh config and aliases"
+copy_alias_asset_if_present() {
+    src="$1"
+    dst="$2"
+    owner="$3"
+    if [ ! -f "$src" ]; then
+        warn "Alias asset not found yet: $src"
+        return 1
+    fi
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would install alias asset $dst from $src"
+        return 0
+    fi
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst" || return 1
+    chown "$owner:$owner" "$dst" 2>/dev/null || true
+    chmod 644 "$dst" 2>/dev/null || true
+    return 0
+}
+
+install_aliases_for_shell() {
+    shell_name="$1"
+    target_home="$2"
+    target_user="$3"
+    src_dir="$(script_dir)"
+    case "$shell_name" in
+        zsh) alias_src="$src_dir/aliases/aliases.zsh"; alias_dst="$target_home/.config/iosish/aliases.zsh" ;;
+        bash) alias_src="$src_dir/aliases/aliases.bash"; alias_dst="$target_home/.config/iosish/aliases.bash" ;;
+        fish) alias_src="$src_dir/aliases/aliases.fish"; alias_dst="$target_home/.config/iosish/aliases.fish" ;;
+        *) return 0 ;;
+    esac
+    copy_alias_asset_if_present "$alias_src" "$alias_dst" "$target_user"         && ok "Installed optional $shell_name aliases for $target_user"         || return 1
+}
+
+prompt_for_alias_install() {
+    read_shelly_selection_state || { warn "Shelly state file missing; skipping optional alias integration"; return 0; }
+    shell_summary="$CONFIGURED_SHELLS"
+    [ -n "$shell_summary" ] || shell_summary="$INSTALL_SHELLS_SELECTED"
+    [ -n "$shell_summary" ] || shell_summary="selected shell(s)"
+
+    if [ "$NONINTERACTIVE" = "1" ]; then
+        info "Noninteractive mode: skipping optional alias integration prompt"
+        return 0
+    fi
+
+    confirm_yes "Shelly configured $shell_summary. Install optional iOSiSH aliases for the configured shell(s)?" "N" || {
+        info "Skipped optional alias integration"
+        return 0
+    }
+
+    for shell_name in zsh bash fish; do
+        case " $CONFIGURED_SHELLS " in
+            *" $shell_name "*|*"$shell_name"*)
+                install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
+                ;;
+        esac
+    done
 }
 
 ensure_shared_ssh_keypair() {
     key="$PRIMARY_HOME/.ssh/id_ed25519"
-    mkdir -p "$PRIMARY_HOME/.ssh"
+    run_cmd mkdir -p "$PRIMARY_HOME/.ssh"
     if [ ! -f "$key" ]; then
-        cmd_exists ssh-keygen && ssh-keygen -q -t ed25519 -N '' -f "$key" >/dev/null 2>&1 \
+        cmd_exists ssh-keygen && run_cmd ssh-keygen -q -t ed25519 -N '' -f "$key" >/dev/null 2>&1 \
             && ok "Generated shared SSH keypair" || warn "Failed to generate shared SSH keypair"
     else
         ok "Shared SSH keypair already exists"
     fi
-    chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
-    chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
-    find "$PRIMARY_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
-    [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$PRIMARY_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
+    run_cmd chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    run_cmd chmod 700 "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    [ "$DRY_RUN" = "1" ] || find "$PRIMARY_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+    [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && run_cmd chmod 644 "$PRIMARY_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
 }
 
 write_ish_client_config() {
     cfg="$PRIMARY_HOME/.ssh/config"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would write iSH SSH client config to $cfg"
+        return 0
+    fi
     mkdir -p "$PRIMARY_HOME/.ssh"
     {
         printf '%s\n' 'Host *'
@@ -514,6 +610,10 @@ write_ish_client_config() {
 
 write_pc_side_snippets() {
     outdir="$PRIMARY_HOME/pc-ssh-snippets"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would write PC-side SSH snippets to $outdir"
+        return 0
+    fi
     mkdir -p "$outdir"
 
     cat > "$outdir/pc_ssh_config.conf" <<EOF
@@ -588,25 +688,29 @@ EOF
 
 link_path_force() {
     src="$1"; dst="$2"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would symlink $dst -> $src"
+        return 0
+    fi
     mkdir -p "$(dirname "$dst")"
     rm -rf "$dst"
     ln -s "$src" "$dst"
 }
 
 link_root_to_shared_assets() {
-    mkdir -p /root /root/.config /root/.local/share /root/.cache /root/.ssh
-    link_path_force "$PRIMARY_HOME/.zshrc" /root/.zshrc
-    link_path_force "$PRIMARY_HOME/.oh-my-zsh" /root/.oh-my-zsh
-    link_path_force "$PRIMARY_HOME/.local/share/zinit" /root/.local/share/zinit
-    link_path_force "$PRIMARY_HOME/.config/zsh" /root/.config/zsh
+    run_cmd mkdir -p /root /root/.ssh
     link_path_force "$PRIMARY_HOME/.ssh/config" /root/.ssh/config
     [ -f "$PRIMARY_HOME/.ssh/id_ed25519" ] && link_path_force "$PRIMARY_HOME/.ssh/id_ed25519" /root/.ssh/id_ed25519
     [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && link_path_force "$PRIMARY_HOME/.ssh/id_ed25519.pub" /root/.ssh/id_ed25519.pub
-    chmod 700 /root/.ssh 2>/dev/null || true
-    ok "Linked root to shared canonical shell and SSH assets"
+    run_cmd chmod 700 /root/.ssh 2>/dev/null || true
+    ok "Linked root to shared SSH assets"
 }
 
 configure_sudo_doas() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would configure sudo/doas policy"
+        return 0
+    fi
     if cmd_exists sudo; then
         mkdir -p /etc/sudoers.d
         printf '%%wheel ALL=(ALL) ALL\n' > /etc/sudoers.d/wheel
@@ -622,12 +726,16 @@ configure_sudo_doas() {
 
 generate_host_keys_if_needed() {
     [ -f /etc/ssh/ssh_host_ed25519_key ] || [ -f /etc/ssh/ssh_host_rsa_key ] || {
-        cmd_exists ssh-keygen && ssh-keygen -A >/dev/null 2>&1 && ok "Generated SSH host keys" || warn "Failed to generate SSH host keys"
+        cmd_exists ssh-keygen && run_cmd ssh-keygen -A >/dev/null 2>&1 && ok "Generated SSH host keys" || warn "Failed to generate SSH host keys"
     }
 }
 
 ensure_sshd_config_key() {
     key="$1"; value="$2"; cfg="/etc/ssh/sshd_config"
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] ensure sshd_config: $key $value"
+        return 0
+    fi
     [ -f "$cfg" ] || touch "$cfg"
     if grep -Eq "^[#[:space:]]*${key}[[:space:]]+" "$cfg" 2>/dev/null; then
         tmpf="/tmp/sshd_config.$$"
@@ -646,44 +754,59 @@ ensure_sshd_config_key() {
 }
 
 configure_sshd_server() {
-    mkdir -p /etc/ssh /root/.ssh "$PRIMARY_HOME/.ssh"
-    chmod 700 /root/.ssh "$PRIMARY_HOME/.ssh" 2>/dev/null || true
-    chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    run_cmd mkdir -p /etc/ssh /root/.ssh "$PRIMARY_HOME/.ssh"
+    run_cmd chmod 700 /root/.ssh "$PRIMARY_HOME/.ssh" 2>/dev/null || true
+    run_cmd chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
 
     generate_host_keys_if_needed
 
     ensure_sshd_config_key "Port" "$ISH_LISTEN_PORT"
     ensure_sshd_config_key "ListenAddress" "0.0.0.0"
     ensure_sshd_config_key "AllowTcpForwarding" "yes"
-    ensure_sshd_config_key "GatewayPorts" "yes"
-    ensure_sshd_config_key "PermitRootLogin" "yes"
-    ensure_sshd_config_key "PasswordAuthentication" "yes"
+    if [ "$SSH_RELAXED" = "1" ]; then
+        ensure_sshd_config_key "GatewayPorts" "yes"
+        ensure_sshd_config_key "PermitRootLogin" "yes"
+        ensure_sshd_config_key "PasswordAuthentication" "yes"
+        ensure_sshd_config_key "PermitTunnel" "yes"
+    else
+        ensure_sshd_config_key "GatewayPorts" "no"
+        ensure_sshd_config_key "PermitRootLogin" "no"
+        ensure_sshd_config_key "PasswordAuthentication" "yes"
+        ensure_sshd_config_key "PermitTunnel" "no"
+    fi
     ensure_sshd_config_key "PubkeyAuthentication" "yes"
     ensure_sshd_config_key "PermitEmptyPasswords" "no"
     ensure_sshd_config_key "Compression" "no"
     ensure_sshd_config_key "PermitTTY" "yes"
-    ensure_sshd_config_key "PermitTunnel" "yes"
     ok "Configured sshd server"
 }
 
 configure_openrc_and_start_sshd() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would enable and start sshd"
+        return 0
+    fi
     if cmd_exists rc-update; then
         rc-update add sshd default >/dev/null 2>&1 || true
     fi
     if cmd_exists service; then
-        service sshd restart >/dev/null 2>&1 || service sshd start >/dev/null 2>&1 || true
+        run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 || true
     fi
     if cmd_exists rc-service; then
-        rc-service sshd restart >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1 || true
+        run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 || true
     fi
     if cmd_exists sshd; then
-        pkill sshd >/dev/null 2>&1 || true
-        /usr/sbin/sshd >/dev/null 2>&1 || sshd >/dev/null 2>&1 || true
+        run_cmd pkill sshd >/dev/null 2>&1 || true
+        run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 || true
     fi
     ok "Attempted to start sshd"
 }
 
 fix_permissions() {
+    if [ "$DRY_RUN" = "1" ]; then
+        info "[dry-run] would normalize ownership and permissions under $PRIMARY_HOME and /root"
+        return 0
+    fi
     chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME" 2>/dev/null || true
     chmod 755 "$PRIMARY_HOME" 2>/dev/null || true
 
@@ -703,8 +826,6 @@ fix_permissions() {
     [ -d "$PRIMARY_HOME/.config" ] && find "$PRIMARY_HOME/.config" -type f -exec chmod 644 {} \; 2>/dev/null || true
 
     [ -d "$PRIMARY_HOME/.cache/zsh" ] && chmod 700 "$PRIMARY_HOME/.cache/zsh" 2>/dev/null || true
-    [ -f "$PRIMARY_HOME/.zshrc" ] && chmod 644 "$PRIMARY_HOME/.zshrc" 2>/dev/null || true
-    [ -f "$PRIMARY_HOME/.config/zsh/.aliases" ] && chmod 644 "$PRIMARY_HOME/.config/zsh/.aliases" 2>/dev/null || true
     rm -f "$PRIMARY_HOME"/.zcompdump* "$PRIMARY_HOME/.cache/zsh"/zcompdump-* 2>/dev/null || true
 
     if [ -d "$PRIMARY_HOME/.ssh" ]; then
@@ -714,33 +835,23 @@ fix_permissions() {
         [ -f "$PRIMARY_HOME/.ssh/id_ed25519.pub" ] && chmod 644 "$PRIMARY_HOME/.ssh/id_ed25519.pub" 2>/dev/null || true
     fi
 
-    chown -h root:root /root/.zshrc /root/.oh-my-zsh /root/.config/zsh /root/.local/share/zinit /root/.ssh/config /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub 2>/dev/null || true
+    chown -h root:root /root/.ssh/config /root/.ssh/id_ed25519 /root/.ssh/id_ed25519.pub 2>/dev/null || true
     chmod 700 /root 2>/dev/null || true
-    chmod 700 /root/.ssh 2>/dev/null || true
-    [ -L /root/.zshrc ] && [ "$(readlink /root/.zshrc 2>/dev/null)" = "$PRIMARY_HOME/.zshrc" ] || warn "root .zshrc is not linked to canonical asset"
-    [ -L /root/.config/zsh ] && [ "$(readlink /root/.config/zsh 2>/dev/null)" = "$PRIMARY_HOME/.config/zsh" ] || warn "root .config/zsh is not linked to canonical asset"
-    [ -L /root/.oh-my-zsh ] && [ "$(readlink /root/.oh-my-zsh 2>/dev/null)" = "$PRIMARY_HOME/.oh-my-zsh" ] || warn "root .oh-my-zsh is not linked to canonical asset"
-    [ -L /root/.local/share/zinit ] && [ "$(readlink /root/.local/share/zinit 2>/dev/null)" = "$PRIMARY_HOME/.local/share/zinit" ] || warn "root zinit is not linked to canonical asset"
+    run_cmd chmod 700 /root/.ssh 2>/dev/null || true
+    [ -L /root/.ssh/config ] && [ "$(readlink /root/.ssh/config 2>/dev/null)" = "$PRIMARY_HOME/.ssh/config" ] || warn "root .ssh/config is not linked to shared SSH asset"
 
     chmod 700 /root 2>/dev/null || true
-    chmod 700 /root/.ssh 2>/dev/null || true
+    run_cmd chmod 700 /root/.ssh 2>/dev/null || true
     ok "Fixed permissions"
-}
-
-prime_zsh_for_user() {
-    target_user="$1"
-    info "Priming Zsh environment for $target_user"
-    if [ "$target_user" = "root" ]; then
-        zsh -lc 'exit 0' || warn "Zsh priming did not complete cleanly for root"
-    else
-        su - "$target_user" -c 'zsh -lc "exit 0"' || warn "Zsh priming did not complete cleanly for $target_user"
-    fi
-    ok "Finished Zsh priming for $target_user"
 }
 
 self_test() {
     say ""
     say "Post-run self-test:"
+    if [ "$DRY_RUN" = "1" ]; then
+        say "  [INFO] dry-run mode: skipped live service/config validation"
+        return 0
+    fi
     sshd -t >/dev/null 2>&1 && say "  [OK] sshd config parse" || say "  [WARN] sshd config parse"
     ssh -G 127.0.0.1 >/dev/null 2>&1 && say "  [OK] ssh client parse" || say "  [WARN] ssh client parse"
     [ -n "$HOME_PC_HOST" ] && ssh -G ssh-home >/dev/null 2>&1 && say "  [OK] ssh-home profile parse" || true
@@ -748,12 +859,13 @@ self_test() {
 }
 
 main() {
+    parse_args "$@"
     require_root
     collect_config
     validate_config
 
     info "Updating apk indexes"
-    apk update >/dev/null 2>&1 || warn "apk update failed"
+    run_cmd apk update >/dev/null 2>&1 || warn "apk update failed"
 
     info "Installing packages"
     pkg_install_alias "curl" curl
@@ -781,8 +893,6 @@ main() {
     pkg_install_alias "findutils" findutils
     pkg_install_alias "file" file
     pkg_install_alias "patch" patch
-    pkg_install_alias "bash" bash
-    pkg_install_alias "zsh" zsh
     pkg_install_alias "sudo" sudo
     pkg_install_alias "doas" doas
     pkg_install_alias "shadow" shadow
@@ -800,15 +910,8 @@ main() {
     set_hostname_files
     ensure_primary_user
     set_passwords
-
-    if cmd_exists zsh; then
-        set_shell_in_passwd root "$(command -v zsh)"
-        set_shell_in_passwd "$PRIMARY_USER" "$(command -v zsh)"
-    fi
-
-    write_profiles
-    install_shell_frameworks
-    install_repo_shell_assets
+    run_shelly_setup
+    prompt_for_alias_install
     ensure_shared_ssh_keypair
     write_ish_client_config
     write_pc_side_snippets
@@ -816,8 +919,6 @@ main() {
     configure_sudo_doas
     configure_sshd_server
     fix_permissions
-    prime_zsh_for_user "$PRIMARY_USER"
-    prime_zsh_for_user root
     configure_openrc_and_start_sshd
 
     say ""
@@ -848,6 +949,13 @@ main() {
     say ""
     say "Hotspot IP reminder:"
     say "  Expected iSH hotspot IP: $ISH_HOTSPOT_IP"
+    if [ "$SSH_RELAXED" = "1" ]; then
+        say "SSH posture:"
+        say "  relaxed legacy mode enabled (--ssh-relaxed)"
+    else
+        say "SSH posture:"
+        say "  hardened defaults enabled"
+    fi
     say "  If hotspot addressing changes, update the home PC config snippet."
     say ""
     say "Fresh iSH keep-awake helper:"

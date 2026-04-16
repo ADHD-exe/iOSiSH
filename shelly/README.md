@@ -1,37 +1,35 @@
-# Shell Setup Repo
+# Shelly
 
-Interactive shell setup scripts for:
+Interactive shell setup tooling for Alpine Linux on iSH.
 
-- Arch Linux
-- Alpine Linux on iSH
+## Scope
 
-## Features
+Shelly is now the **sole shell owner** for this repository. It is responsible for:
 
-- Interactive by default
-- Optional unattended flags
-- Root only mode
-- `--primary-user USER` identify or create behavior
-- Zsh, Bash, Fish, or all three
-- Per shell prompt selection
-- Optional fetch tool setup:
-  - fastfetch
-  - neofetch
-  - neither
-- Continues when packages are missing
-- Package alias helpers
-- Backups for changed config files
-- Summary output for changed files, missing packages, and skipped components
+- installing Bash, Zsh, Fish, or all three
+- installing prompt/framework/plugin components for the selected shell(s)
+- creating or updating shell config files
+- selecting default shell behavior for root and the primary user
+- writing a shell selection state file for downstream tools
 
-## Repo contents
+## Main features
 
-- `scripts/arch_shell_setup.sh`
-- `scripts/alpine_ish_shell_setup.sh`
-- `docs/arch_shell_setup_doc.md`
-- `docs/alpine_ish_shell_setup_doc.md`
+- `--auto-install` unattended defaults
+- `--noninteractive` for scripted use with explicit flags
+- `--root-only`
+- `--primary-user USER`
+- `--install-shells zsh|bash|fish|all`
+- `--root-shell zsh|bash|fish`
+- `--user-shell zsh|bash|fish`
+- `--zsh-prompt omz|starship|powerlevel10k`
+- `--bash-prompt framework|starship`
+- `--fish-prompt tide|starship`
+- `--fetch-tool fastfetch|neofetch|neither`
+- writes `~/.config/shelly/selection.env` after setup
+- inserts alias hook points so iOSiSH can later add optional shell-aware aliases
 
-## Examples
+## Notes
 
-### Interactive
-```bash
-sudo bash scripts/arch_shell_setup.sh
-sudo bash scripts/alpine_ish_shell_setup.sh
+- Shelly installs only the shell packages actually selected
+- `iOSiSH.sh` should not install `.zshrc`, `.bashrc`, Fish config, Oh My Zsh, or Zinit directly
+- optional aliases are a later step and are not forced during shell setup

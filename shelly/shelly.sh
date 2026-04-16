@@ -18,6 +18,9 @@ BASH_PROMPT_CHOICE=""
 FISH_PROMPT_CHOICE=""
 FETCH_CHOICE=""
 
+SHELLY_STATE_DIR=""
+SHELLY_STATE_FILE=""
+
 ALLOW_CHSH_ON_ISH="${ALLOW_CHSH_ON_ISH:-0}"
 
 DEFAULT_INSTALL_SHELLS="all"
@@ -52,7 +55,7 @@ die()   { err "$*"; exit 1; }
 usage() {
   cat <<'EOF'
 Usage:
-  alpine_ish_shell_setup.sh [options]
+  shelly.sh [options]
 
 Options:
   --help
@@ -92,6 +95,19 @@ append_component() { append_unique "$1" INSTALLED_COMPONENTS; }
 append_shell() { append_unique "$1" INSTALLED_SHELLS; }
 append_missing_package() { append_unique "$1" MISSING_PACKAGES; }
 append_skipped_component() { append_unique "$1" SKIPPED_COMPONENTS; }
+append_changed_file() { append_unique "$1" CHANGED_FILES; }
+
+backup_file_if_needed() {
+  local file="$1"
+  [[ -e "$file" ]] || return 0
+
+  local backup="${file}.bak"
+  if [[ ! -e "$backup" ]]; then
+    cp -p "$file" "$backup" 2>/dev/null || cp "$file" "$backup" 2>/dev/null || return 1
+    append_changed_file "$backup"
+  fi
+}
+
 
 require_root() {
   [[ "${EUID}" -eq 0 ]] || die "Run this script as root."
@@ -120,7 +136,12 @@ ensure_line() {
   local file="$1"
   local line="$2"
   touch "$file" 2>/dev/null || return 1
-  grep -Fqx "$line" "$file" 2>/dev/null || printf '%s\n' "$line" >> "$file"
+  if ! grep -Fqx "$line" "$file" 2>/dev/null; then
+    backup_file_if_needed "$file" || true
+    printf '%s
+' "$line" >> "$file"
+    append_changed_file "$file"
+  fi
 }
 
 ensure_block() {
@@ -129,12 +150,51 @@ ensure_block() {
   local content="$3"
   touch "$file" 2>/dev/null || return 1
   if ! grep -Fq "$marker" "$file" 2>/dev/null; then
+    backup_file_if_needed "$file" || true
     {
-      printf '\n%s\n' "$marker"
-      printf '%s\n' "$content"
-      printf '%s\n' "${marker/BEGIN/END}"
+      printf '
+%s
+' "$marker"
+      printf '%s
+' "$content"
+      printf '%s
+' "${marker/BEGIN/END}"
     } >> "$file"
+    append_changed_file "$file"
   fi
+}
+
+safe_mkdir_owned() {
+  local dir="$1"
+  local owner="$2"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  chown "$owner:$owner" "$dir" 2>/dev/null || true
+}
+
+record_shell_hook() {
+  local rc_file="$1"
+  local shell_name="$2"
+  case "$shell_name" in
+    zsh)
+      ensure_line "$rc_file" '[ -r "$HOME/.config/iosish/aliases.zsh" ] && . "$HOME/.config/iosish/aliases.zsh"' || true
+      ;;
+    bash)
+      ensure_line "$rc_file" '[ -r "$HOME/.config/iosish/aliases.bash" ] && . "$HOME/.config/iosish/aliases.bash"' || true
+      ;;
+    fish)
+      ensure_block "$rc_file" "# >>> shell setup BEGIN iosish aliases >>>" 'if test -r "$HOME/.config/iosish/aliases.fish"
+    source "$HOME/.config/iosish/aliases.fish"
+end' || true
+      ;;
+  esac
+}
+
+configure_state_paths() {
+  local target_user="$1"
+  local state_home
+  state_home="$(user_home "$target_user")"
+  SHELLY_STATE_DIR="${state_home}/.config/shelly"
+  SHELLY_STATE_FILE="${SHELLY_STATE_DIR}/selection.env"
 }
 
 parse_args() {
@@ -163,8 +223,10 @@ prompt_select() {
   shift
   local options=("$@")
   local idx=1
+  local opt
   printf '%s%s%s\n' "${MAGENTA}" "$prompt_text" "${RESET}" >&2
-printf ' %d) %s\n' "$idx" "$opt"
+  for opt in "${options[@]}"; do
+    printf ' %d) %s\n' "$idx" "$opt"
     ((idx++))
   done
   while true; do
@@ -277,23 +339,47 @@ pkg_install_alias() {
   return 1
 }
 
-install_base_packages() {
-  pkg_install_alias "bash" bash || true
-  pkg_install_alias "zsh" zsh || true
-  pkg_install_alias "fish" fish || true
+install_common_packages() {
   pkg_install_alias "git" git || true
   pkg_install_alias "curl" curl || true
   pkg_install_alias "wget" wget || true
   pkg_install_alias "sudo" sudo || true
   pkg_install_alias "fzf" fzf || true
   pkg_install_alias "zoxide" zoxide || true
-  pkg_install_alias "starship" starship || true
   pkg_install_alias "perl" perl || true
   pkg_install_alias "make" make || true
+}
+
+install_zsh_packages() {
+  pkg_install_alias "zsh" zsh || true
   pkg_install_alias "zsh-syntax-highlighting" zsh-syntax-highlighting || true
   pkg_install_alias "oh-my-zsh-package" oh-my-zsh || true
 }
 
+install_bash_packages() {
+  pkg_install_alias "bash" bash || true
+}
+
+install_fish_packages() {
+  pkg_install_alias "fish" fish || true
+}
+
+install_selected_shell_packages() {
+  install_common_packages
+
+  shell_is_selected zsh && install_zsh_packages
+  shell_is_selected bash && install_bash_packages
+  shell_is_selected fish && install_fish_packages
+}
+
+should_install_starship() {
+  [[ "$ZSH_PROMPT_CHOICE" == "starship" || "$BASH_PROMPT_CHOICE" == "starship" || "$FISH_PROMPT_CHOICE" == "starship" ]]
+}
+
+install_base_packages() {
+  install_selected_shell_packages
+  should_install_starship && pkg_install_alias "starship" starship || true
+}
 install_fetch_tool() {
   case "$FETCH_CHOICE" in
     fastfetch) pkg_install_alias "fastfetch" fastfetch || append_skipped_component "fastfetch" ;;
@@ -348,11 +434,29 @@ configure_zsh_for_user() {
     git_clone_or_update "https://github.com/romkatv/powerlevel10k.git" "${custom}/themes/powerlevel10k" || append_skipped_component "powerlevel10k:${user}"
   fi
 
-  [[ -f "$zshrc" ]] || cp "${home}/.oh-my-zsh/templates/zshrc.zsh-template" "$zshrc" 2>/dev/null || true
-  [[ -f "$zshrc" ]] || return 1
+  touch_owned "$zshrc" "$user" || return 1
+  if ! grep -Fq 'source "$ZSH/oh-my-zsh.sh"' "$zshrc" 2>/dev/null; then
+    backup_file_if_needed "$zshrc" || true
+    cat > "$zshrc" <<'EOF'
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
+source "$ZSH/oh-my-zsh.sh"
+EOF
+    chown "$user:$user" "$zshrc" 2>/dev/null || true
+    append_changed_file "$zshrc"
+  fi
 
-  ensure_block "$zshrc" "# >>> shell setup BEGIN zsh extras >>>" \
-'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+  if [[ "$ZSH_PROMPT_CHOICE" == "powerlevel10k" ]]; then
+    if grep -Fq 'ZSH_THEME="robbyrussell"' "$zshrc" 2>/dev/null; then
+      sed -i 's|^ZSH_THEME="robbyrussell"$|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$zshrc" 2>/dev/null || true
+      append_changed_file "$zshrc"
+    else
+      ensure_line "$zshrc" 'ZSH_THEME="powerlevel10k/powerlevel10k"' || true
+    fi
+  fi
+
+  ensure_block "$zshrc" "# >>> shell setup BEGIN zsh extras >>>" 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
 if [[ -o interactive ]] && [[ -z "${FETCH_SHOWN:-}" ]]; then
   export FETCH_SHOWN=1
   command -v fastfetch >/dev/null 2>&1 && fastfetch || command -v neofetch >/dev/null 2>&1 && neofetch
@@ -362,6 +466,8 @@ fi' || true
     ensure_line "$zshrc" 'command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"' || true
   fi
 
+  record_shell_hook "$zshrc" zsh
+  append_changed_file "$zshrc"
   append_shell "zsh"
 }
 
@@ -384,8 +490,7 @@ configure_bash_for_user() {
   command_exists bash || return 1
   touch_owned "$bashrc" "$user" || return 1
 
-  ensure_block "$bashrc" "# >>> shell setup BEGIN bash extras >>>" \
-'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"
+  ensure_block "$bashrc" "# >>> shell setup BEGIN bash extras >>>" 'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"
 if [[ $- == *i* ]] && [[ -z "${FETCH_SHOWN:-}" ]]; then
   export FETCH_SHOWN=1
   command -v fastfetch >/dev/null 2>&1 && fastfetch || command -v neofetch >/dev/null 2>&1 && neofetch
@@ -395,6 +500,8 @@ fi' || true
     ensure_line "$bashrc" 'command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"' || true
   fi
 
+  record_shell_hook "$bashrc" bash
+  append_changed_file "$bashrc"
   append_shell "bash"
 }
 
@@ -437,6 +544,8 @@ end' || true
     ensure_line "$config_fish" 'command -q starship; and starship init fish | source' || true
   fi
 
+  record_shell_hook "$config_fish" fish
+  append_changed_file "$config_fish"
   append_shell "fish"
 }
 
@@ -495,7 +604,27 @@ main_install() {
   if manage_user_if_present_or_created; then
     configure_for_user_if_available "$PRIMARY_USER"
     set_default_shell "$PRIMARY_USER" "$USER_DEFAULT" || true
+    write_selection_state "$PRIMARY_USER"
+  else
+    write_selection_state root
   fi
+}
+
+write_selection_state() {
+  local state_user="$1"
+  local configured_shells="${INSTALLED_SHELLS[*]:-none}"
+  configure_state_paths "$state_user"
+  safe_mkdir_owned "$SHELLY_STATE_DIR" "$state_user" || return 1
+  cat > "$SHELLY_STATE_FILE" <<EOF
+INSTALL_SHELLS=${INSTALL_SHELLS}
+ROOT_DEFAULT=${ROOT_DEFAULT}
+USER_DEFAULT=${USER_DEFAULT}
+CONFIGURED_SHELLS=${configured_shells}
+FETCH_CHOICE=${FETCH_CHOICE}
+ROOT_ONLY=${ROOT_ONLY}
+EOF
+  chown "$state_user:$state_user" "$SHELLY_STATE_FILE" 2>/dev/null || true
+  append_changed_file "$SHELLY_STATE_FILE"
 }
 
 print_summary() {
@@ -504,6 +633,10 @@ print_summary() {
   printf 'Installed shells: %s\n' "${INSTALLED_SHELLS[*]:-none}"
   printf 'Fetch tool: %s\n' "$FETCH_CHOICE"
   printf 'Installed components: %s\n' "${INSTALLED_COMPONENTS[*]:-none}"
+
+  printf 'Changed files:\n'
+  local c
+  for c in "${CHANGED_FILES[@]:-}"; do printf '  %s\n' "$c"; done
 
   printf 'Missing packages:\n'
   local p

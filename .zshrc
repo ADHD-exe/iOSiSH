@@ -1,6 +1,6 @@
 # iOSiSH shared zsh config
 
-export TERM=xterm-256color 
+export TERM=xterm-256color
 export SHARED_HOME="${SHARED_HOME:-__PRIMARY_HOME__}"
 export LANG="${LANG:-C.UTF-8}"
 export EDITOR="${EDITOR:-nvim}"
@@ -29,6 +29,8 @@ PROMPT='%F{'$USER_COLOR'}%n@'"$HOST_DISPLAY"'%f:%F{yellow}%~%f %# '
 RPROMPT='%(?..%F{red}[%?]%f)'
 
 [ -r "$SHARED_HOME/.config/zsh/.aliases" ] && . "$SHARED_HOME/.config/zsh/.aliases"
+[ -r "$SHARED_HOME/.config/zsh/.zshrc.local" ] && . "$SHARED_HOME/.config/zsh/.zshrc.local"
+[ -r "$HOME/.zshrc.local" ] && . "$HOME/.zshrc.local"
 
 if command -v zoxide >/dev/null 2>&1; then eval "$(zoxide init zsh)"; fi
 [ -r /usr/share/fzf/key-bindings.zsh ] && . /usr/share/fzf/key-bindings.zsh
