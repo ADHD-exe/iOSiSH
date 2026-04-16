@@ -263,6 +263,49 @@ Package plan actions:
     done
 }
 
+
+plan_installer_preferences() {
+    print_section_header "Installer Preferences"
+    print_help_text "Choose how much output you want and whether color should be enabled by default."
+
+    COLOR_OUTPUT=$(prompt_choice "Choose color output mode:" "auto" "auto" "on" "off") || return 1
+    OUTPUT_MODE=$(prompt_choice "Choose output mode:" "normal" "quiet" "normal" "verbose") || return 1
+
+    state_set COLOR_OUTPUT "$COLOR_OUTPUT"
+    state_set OUTPUT_MODE "$OUTPUT_MODE"
+}
+
+plan_user_setup() {
+    print_section_header "User and Root Setup"
+    print_help_text "Choose whether to configure only root or both root and a primary non-root user."
+
+    root_only=$(prompt_yes_no "Configure root only?" "no") || return 1
+    state_set ROOT_ONLY "$root_only"
+
+    if [ "$root_only" = "yes" ]; then
+        state_set CONFIGURE_ROOT "yes"
+        state_set PRIMARY_USER ""
+        state_set PRIMARY_HOME "/root"
+        return 0
+    fi
+
+    printf 'Enter primary username [user]: '
+    read -r primary_user || return 1
+    [ -n "$primary_user" ] || primary_user="user"
+
+    state_set PRIMARY_USER "$primary_user"
+    state_set PRIMARY_HOME "/home/$primary_user"
+    state_set CONFIGURE_ROOT "yes"
+}
+
+plan_shell_setup() {
+    print_section_header "Shell Setup"
+    print_help_text "Shelly handles shell installation and configuration. You can skip it and keep the current shell state if needed."
+
+    run_shelly=$(prompt_yes_no "Run Shelly for shell configuration?" "yes") || return 1
+    state_set RUN_SHELLY "$run_shelly"
+}
+
 configure_package_mode_state() {
     package_mode=$1
     state_set PACKAGE_MODE "$package_mode"
