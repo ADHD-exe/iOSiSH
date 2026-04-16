@@ -78,16 +78,17 @@ state_init_defaults() {
   state_set COLOR_OUTPUT "auto"
   state_set OUTPUT_MODE "normal"
   state_set INTERACTIVE_MODE "yes"
-
-  state_set SSHD_PORT "22"
+  state_set EDITOR_SETUP_MODE "recommended"
+  state_set SSHD_PROFILE "recommended"
+  state_set SSHD_PORT "2222"
   state_set SSHD_ALLOW_ROOT "no"
   state_set SSHD_PASSWORD_AUTH "yes"
+  state_set SSHD_GATEWAY_PORTS "no"
   state_set SSHD_HOTSPOT_BYPASS "no"
-  state_set ENABLE_SSHD_SERVICE "yes"
-  state_set START_SSHD_NOW "yes"
+  state_set SSHD_ENABLE_AT_BOOT "yes"
+  state_set SSHD_START_NOW "yes"
   state_set ENABLED_SERVICES ""
   state_set START_NOW_SERVICES ""
-
   state_set INSTALL_DOC_WRAPPER "no"
   state_set INSTALL_COMPLETION_WRAPPER "no"
 }
@@ -132,8 +133,40 @@ state_mark_complete() {
   state_set INSTALL_STATUS "complete"
 }
 
+state_step_done() {
+  step=$1
+  [ -n "$step" ] || return 1
+  case "$step" in
+    users) [ "$(state_get STEP_USERS_DONE 2>/dev/null || true)" = "yes" ] ;;
+    shells) [ "$(state_get STEP_SHELLS_DONE 2>/dev/null || true)" = "yes" ] ;;
+    packages) [ "$(state_get STEP_PACKAGES_DONE 2>/dev/null || true)" = "yes" ] ;;
+    editor) [ "$(state_get STEP_EDITOR_DONE 2>/dev/null || true)" = "yes" ] ;;
+    ssh) [ "$(state_get STEP_SSH_DONE 2>/dev/null || true)" = "yes" ] ;;
+    sshd) [ "$(state_get STEP_SSHD_DONE 2>/dev/null || true)" = "yes" ] ;;
+    privilege) [ "$(state_get STEP_PRIVILEGE_DONE 2>/dev/null || true)" = "yes" ] ;;
+    services) [ "$(state_get STEP_SERVICES_DONE 2>/dev/null || true)" = "yes" ] ;;
+    extras) [ "$(state_get STEP_EXTRAS_DONE 2>/dev/null || true)" = "yes" ] ;;
+    *) return 1 ;;
+  esac
+}
+
 state_reset() {
   rm -f -- "$INSTALLER_STATE_FILE"
   state_ensure_file || return 1
   state_init_defaults
+}
+
+state_any_completed() {
+  for step in users shells packages editor ssh sshd privilege services extras; do
+    if state_step_done "$step"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+state_set_install_status() {
+  value=$1
+  [ -n "$value" ] || return 1
+  state_set INSTALL_STATUS "$value"
 }

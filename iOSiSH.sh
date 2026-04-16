@@ -88,6 +88,21 @@ load_guided_installer_modules() {
     . "$INSTALLER_DIR/plan.sh" || return 1
 }
 
+INSTALLER_RUNTIME_LOG="${INSTALLER_RUNTIME_LOG:-$SCRIPT_DIR/.iosish-install.log}"
+
+log_install_event() {
+    level=$1
+    shift
+    message=$*
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || printf '%s' 'unknown-time')
+    printf '%s [%s] %s\n' "$timestamp" "$level" "$message" >> "$INSTALLER_RUNTIME_LOG" 2>/dev/null || true
+}
+
+init_runtime_log() {
+    : > "$INSTALLER_RUNTIME_LOG" 2>/dev/null || true
+    log_install_event INFO "Starting iOSiSH installer run"
+}
+
 usage() {
     cat <<EOF
 Usage: iOSiSH.sh [options]
@@ -192,6 +207,7 @@ apply_guided_state_to_runtime() {
     SELECTED_PACKAGE_CATEGORIES="$(state_get SELECTED_PACKAGE_CATEGORIES 2>/dev/null || true)"
     SELECTED_PACKAGES="$(state_get SELECTED_PACKAGES 2>/dev/null || true)"
     EXCLUDED_PACKAGES="$(state_get EXCLUDED_PACKAGES 2>/dev/null || true)"
+    EDITOR_SETUP_MODE="$(state_get EDITOR_SETUP_MODE 2>/dev/null || true)"
     EDITOR_CHOICE="$(state_get EDITOR_CHOICE 2>/dev/null || true)"
     INSTALL_EDITOR_CONFIG="$(state_get INSTALL_EDITOR_CONFIG 2>/dev/null || true)"
     INSTALL_EDITOR_PLUGINS="$(state_get INSTALL_EDITOR_PLUGINS 2>/dev/null || true)"
@@ -199,20 +215,10 @@ apply_guided_state_to_runtime() {
     INSTALL_ALIASES="$(state_get INSTALL_ALIASES 2>/dev/null || true)"
     INSTALL_SSH_CLIENT="$(state_get INSTALL_SSH_CLIENT 2>/dev/null || true)"
     INSTALL_SSHD="$(state_get INSTALL_SSHD 2>/dev/null || true)"
-    SSHD_PORT="$(state_get SSHD_PORT 2>/dev/null || true)"
-    SSHD_ALLOW_ROOT="$(state_get SSHD_ALLOW_ROOT 2>/dev/null || true)"
-    SSHD_PASSWORD_AUTH="$(state_get SSHD_PASSWORD_AUTH 2>/dev/null || true)"
-    SSHD_HOTSPOT_BYPASS="$(state_get SSHD_HOTSPOT_BYPASS 2>/dev/null || true)"
-    ENABLE_SSHD_SERVICE="$(state_get ENABLE_SSHD_SERVICE 2>/dev/null || true)"
-    START_SSHD_NOW="$(state_get START_SSHD_NOW 2>/dev/null || true)"
-    ENABLED_SERVICES="$(state_get ENABLED_SERVICES 2>/dev/null || true)"
-    START_NOW_SERVICES="$(state_get START_NOW_SERVICES 2>/dev/null || true)"
     INSTALL_SUDO="$(state_get INSTALL_SUDO 2>/dev/null || true)"
     INSTALL_DOAS="$(state_get INSTALL_DOAS 2>/dev/null || true)"
     INSTALL_MANPAGES="$(state_get INSTALL_MANPAGES 2>/dev/null || true)"
     INSTALL_COMPLETIONS="$(state_get INSTALL_COMPLETIONS 2>/dev/null || true)"
-    INSTALL_DOC_WRAPPER="$(state_get INSTALL_DOC_WRAPPER 2>/dev/null || true)"
-    INSTALL_COMPLETION_WRAPPER="$(state_get INSTALL_COMPLETION_WRAPPER 2>/dev/null || true)"
     GUIDED_PLAN_ACTIVE=1
     export GUIDED_PLAN_ACTIVE
     populate_defaults
@@ -447,7 +453,6 @@ collect_config() {
     fi
 
     if [ "${INSTALL_SSHD:-yes}" = "yes" ]; then
-        [ -n "${SSHD_PORT:-}" ] && ISH_LISTEN_PORT="$SSHD_PORT"
         while :; do
             ISH_LISTEN_PORT="$(prompt_text "iSH sshd listen port" "$ISH_LISTEN_PORT")"
             is_valid_port "$ISH_LISTEN_PORT" && break
@@ -945,49 +950,29 @@ configure_sshd_server() {
         info "Guided plan skipped sshd server configuration"
         return 0
     fi
-
-    state_mark_step_started sshd 2>/dev/null || true
     run_cmd mkdir -p /etc/ssh /root/.ssh "$PRIMARY_HOME/.ssh"
     run_cmd chmod 700 /root/.ssh "$PRIMARY_HOME/.ssh" 2>/dev/null || true
     run_cmd chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.ssh" 2>/dev/null || true
 
     generate_host_keys_if_needed
 
-    sshd_port="${SSHD_PORT:-$ISH_LISTEN_PORT}"
-    [ -n "$sshd_port" ] && ISH_LISTEN_PORT="$sshd_port"
-
-    ensure_sshd_config_key "Port" "$ISH_LISTEN_PORT"
+    ensure_sshd_config_key "Port" "${SSHD_PORT:-$ISH_LISTEN_PORT}"
     ensure_sshd_config_key "ListenAddress" "0.0.0.0"
     ensure_sshd_config_key "AllowTcpForwarding" "yes"
-
-    if [ "${SSHD_HOTSPOT_BYPASS:-no}" = "yes" ] || [ "$SSH_RELAXED" = "1" ]; then
-        ensure_sshd_config_key "GatewayPorts" "yes"
+    ensure_sshd_config_key "GatewayPorts" "${SSHD_GATEWAY_PORTS:-no}"
+    ensure_sshd_config_key "PermitRootLogin" "${SSHD_ALLOW_ROOT:-no}"
+    ensure_sshd_config_key "PasswordAuthentication" "${SSHD_PASSWORD_AUTH:-yes}"
+    if [ "${SSHD_HOTSPOT_BYPASS:-no}" = "yes" ]; then
         ensure_sshd_config_key "PermitTunnel" "yes"
     else
-        ensure_sshd_config_key "GatewayPorts" "no"
         ensure_sshd_config_key "PermitTunnel" "no"
     fi
-
-    if [ "${SSHD_ALLOW_ROOT:-no}" = "yes" ]; then
-        ensure_sshd_config_key "PermitRootLogin" "yes"
-    else
-        ensure_sshd_config_key "PermitRootLogin" "no"
-    fi
-
-    if [ "${SSHD_PASSWORD_AUTH:-yes}" = "yes" ]; then
-        ensure_sshd_config_key "PasswordAuthentication" "yes"
-    else
-        ensure_sshd_config_key "PasswordAuthentication" "no"
-    fi
-
     ensure_sshd_config_key "PubkeyAuthentication" "yes"
     ensure_sshd_config_key "PermitEmptyPasswords" "no"
     ensure_sshd_config_key "Compression" "no"
     ensure_sshd_config_key "PermitTTY" "yes"
     ok "Configured sshd server"
-    state_mark_step_done sshd 2>/dev/null || true
 }
-
 
 configure_openrc_and_start_sshd() {
     if [ "${INSTALL_SSHD:-yes}" != "yes" ]; then
@@ -995,27 +980,32 @@ configure_openrc_and_start_sshd() {
         return 0
     fi
     if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] would apply OpenRC service plan: enable=${ENABLE_SSHD_SERVICE:-yes} start=${START_SSHD_NOW:-yes}"
+        info "[dry-run] would reconcile requested OpenRC services"
         return 0
     fi
-    if [ "${ENABLE_SSHD_SERVICE:-yes}" = "yes" ] && cmd_exists rc-update; then
-        rc-update add sshd default >/dev/null 2>&1 || true
-    fi
-    if [ "${START_SSHD_NOW:-yes}" = "yes" ]; then
-        if cmd_exists service; then
-            run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 || true
-        fi
-        if cmd_exists rc-service; then
-            run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 || true
-        fi
-        if cmd_exists sshd; then
-            run_cmd pkill sshd >/dev/null 2>&1 || true
-            run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 || true
-        fi
-    fi
-    ok "Applied sshd service plan"
+    case " ${ENABLED_SERVICES:-} " in
+        *" sshd "*)
+            if cmd_exists rc-update; then
+                rc-update add sshd default >/dev/null 2>&1 || true
+            fi
+            ;;
+    esac
+    case " ${START_NOW_SERVICES:-} " in
+        *" sshd "*)
+            if cmd_exists service; then
+                run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 || true
+            fi
+            if cmd_exists rc-service; then
+                run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 || true
+            fi
+            if cmd_exists sshd; then
+                run_cmd pkill sshd >/dev/null 2>&1 || true
+                run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 || true
+            fi
+            ;;
+    esac
+    ok "Reconciled requested sshd service state"
 }
-
 
 fix_permissions() {
     if [ "$DRY_RUN" = "1" ]; then
@@ -1101,6 +1091,17 @@ EOF
     done
 }
 
+editor_profile_comment() {
+    case "${EDITOR_PROFILE:-recommended}" in
+        minimal) printf '%s
+' 'minimal profile' ;;
+        coding) printf '%s
+' 'coding profile' ;;
+        *) printf '%s
+' 'recommended profile' ;;
+    esac
+}
+
 write_vimrc_for_user() {
     target_home="$1"
     target_user="$2"
@@ -1125,9 +1126,55 @@ EOF
         return 0
     fi
 
-    cat > "$vimrc_path" <<EOF
+    case "${EDITOR_PROFILE:-recommended}" in
+        minimal)
+            cat > "$vimrc_path" <<EOF
 set nocompatible
 syntax on
+set number
+set backspace=indent,eol,start
+set hidden
+set tabstop=4
+set shiftwidth=4
+set expandtab
+" profile: $(editor_profile_comment)
+EOF
+            ;;
+        coding)
+            cat > "$vimrc_path" <<EOF
+set nocompatible
+syntax on
+filetype plugin indent on
+set number
+set relativenumber
+set backspace=indent,eol,start
+set wildmenu
+set showcmd
+set ruler
+set hidden
+set ignorecase
+set smartcase
+set incsearch
+set hlsearch
+set tabstop=4
+set shiftwidth=4
+set softtabstop=4
+set expandtab
+set autoindent
+set smartindent
+set cursorline
+set splitbelow
+set splitright
+set mouse=
+set clipboard=
+" profile: $(editor_profile_comment)
+EOF
+            ;;
+        *)
+            cat > "$vimrc_path" <<EOF
+set nocompatible
+syntax on
+filetype plugin indent on
 set number
 set backspace=indent,eol,start
 set wildmenu
@@ -1143,10 +1190,14 @@ set shiftwidth=4
 set expandtab
 set autoindent
 set mouse=
-" profile: ${EDITOR_PROFILE:-recommended}
+" profile: $(editor_profile_comment)
 EOF
+            ;;
+    esac
     if [ "${INSTALL_EDITOR_PLUGINS:-no}" = "yes" ]; then
-        printf 'set runtimepath^=$HOME/.vim/pack/iosish/start/commentary\npackloadall\n' >> "$vimrc_path"
+        printf 'set runtimepath^=$HOME/.vim/pack/iosish/start/commentary
+packloadall
+' >> "$vimrc_path"
     fi
     chown -R "$target_user:$target_user" "$vimrc_path" "$vim_dir" 2>/dev/null || true
 }
@@ -1176,7 +1227,38 @@ EOF
         return 0
     fi
 
-    cat > "$init_lua" <<EOF
+    case "${EDITOR_PROFILE:-recommended}" in
+        minimal)
+            cat > "$init_lua" <<EOF
+vim.opt.number = true
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 4
+vim.opt.tabstop = 4
+-- profile: $(editor_profile_comment)
+EOF
+            ;;
+        coding)
+            cat > "$init_lua" <<EOF
+vim.opt.number = true
+vim.opt.relativenumber = true
+vim.opt.ignorecase = true
+vim.opt.smartcase = true
+vim.opt.hlsearch = true
+vim.opt.incsearch = true
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 4
+vim.opt.tabstop = 4
+vim.opt.softtabstop = 4
+vim.opt.mouse = ""
+vim.opt.splitbelow = true
+vim.opt.splitright = true
+vim.opt.cursorline = true
+vim.opt.termguicolors = false
+-- profile: $(editor_profile_comment)
+EOF
+            ;;
+        *)
+            cat > "$init_lua" <<EOF
 vim.opt.number = true
 vim.opt.ignorecase = true
 vim.opt.smartcase = true
@@ -1186,10 +1268,14 @@ vim.opt.expandtab = true
 vim.opt.shiftwidth = 4
 vim.opt.tabstop = 4
 vim.opt.mouse = ""
--- profile: ${EDITOR_PROFILE:-recommended}
+-- profile: $(editor_profile_comment)
 EOF
+            ;;
+    esac
     if [ "${INSTALL_EDITOR_PLUGINS:-no}" = "yes" ]; then
-        printf 'vim.opt.runtimepath:prepend(vim.fn.expand("~/.config/nvim/pack/iosish/start/commentary"))\nvim.cmd("packloadall")\n' >> "$init_lua"
+        printf 'vim.opt.runtimepath:prepend(vim.fn.expand("~/.config/nvim/pack/iosish/start/commentary"))
+vim.cmd("packloadall")
+' >> "$init_lua"
     fi
     chown -R "$target_user:$target_user" "$target_home/.config/nvim" 2>/dev/null || true
 }
@@ -1204,18 +1290,45 @@ write_nano_config_for_user() {
         return 0
     fi
 
-    cat > "$nanorc_path" <<EOF
+    case "${EDITOR_PROFILE:-recommended}" in
+        minimal)
+            cat > "$nanorc_path" <<EOF
+set tabsize 4
+set autoindent
+EOF
+            ;;
+        coding)
+            cat > "$nanorc_path" <<EOF
+set linenumbers
+set tabsize 4
+set autoindent
+set smooth
+set positionlog
+set softwrap
+set tabstospaces
+EOF
+            ;;
+        *)
+            cat > "$nanorc_path" <<EOF
 set linenumbers
 set mouse
 set tabsize 4
 set autoindent
 set smooth
 EOF
+            ;;
+    esac
     chown "$target_user:$target_user" "$nanorc_path" 2>/dev/null || true
 }
 
 run_editor_setup_from_state() {
+    if ! should_run_step editor; then
+        info "Skipping editor step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting editor step"
     state_mark_step_started editor || return 1
+    info "Editor plan: ${EDITOR_CHOICE:-skip} (${EDITOR_PROFILE:-skip})"
 
     if [ "${EDITOR_CHOICE:-skip}" = "skip" ]; then
         info "Guided plan skipped editor setup"
@@ -1244,33 +1357,44 @@ run_editor_setup_from_state() {
     fi
 
     state_mark_step_done editor || return 1
+    log_install_event INFO "Completed editor step"
 }
 
 run_user_setup_from_state() {
+    if ! should_run_step users; then
+        info "Skipping users step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting users step"
     state_mark_step_started users || return 1
-    set_hostname_files || { state_mark_failed users; return 1; }
-    ensure_primary_user || { state_mark_failed users; return 1; }
-    set_passwords || { state_mark_failed users; return 1; }
+    set_hostname_files || { log_install_event ERROR "users step failed during hostname setup"; state_mark_failed users; return 1; }
+    ensure_primary_user || { log_install_event ERROR "users step failed during user creation"; state_mark_failed users; return 1; }
+    set_passwords || { log_install_event ERROR "users step failed during password setup"; state_mark_failed users; return 1; }
     state_mark_step_done users || return 1
+    log_install_event INFO "Completed users step"
 }
 
 run_shell_setup_from_state() {
+    if ! should_run_step shells; then
+        info "Skipping shells step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting shells step"
     state_mark_step_started shells || return 1
     if [ "${RUN_SHELLY:-yes}" = "yes" ]; then
-        run_shelly_setup || { state_mark_failed shells; return 1; }
+        run_shelly_setup || { log_install_event ERROR "shells step failed while running Shelly"; state_mark_failed shells; return 1; }
         sync_shelly_state_into_installer_state || warn "Could not import Shelly state into installer state"
     else
         info "Guided plan skipped Shelly shell configuration"
     fi
     state_mark_step_done shells || return 1
+    log_install_event INFO "Completed shells step"
 }
 
 run_alias_setup_from_state() {
-    state_mark_step_started extras || return 1
     if [ "${INSTALL_ALIASES:-no}" = "yes" ]; then
         read_shelly_selection_state || {
             warn "Shelly state file missing; skipping optional alias integration"
-            state_mark_step_done extras || return 1
             return 0
         }
         for shell_name in zsh bash fish; do
@@ -1283,14 +1407,19 @@ run_alias_setup_from_state() {
     else
         info "Guided plan skipped optional alias integration"
     fi
-    state_mark_step_done extras || return 1
 }
 
 run_package_setup_from_state() {
+    if ! should_run_step packages; then
+        info "Skipping packages step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting packages step"
     state_mark_step_started packages || return 1
     info "Updating apk indexes"
     run_cmd apk update >/dev/null 2>&1 || warn "apk update failed"
     pkg_list=$(build_selected_package_list_from_state)
+    log_install_event INFO "Selected package list: ${pkg_list:-<none>}"
     if [ -n "$pkg_list" ]; then
         info "Installing state-selected packages"
         run_pkg_install_list "$pkg_list"
@@ -1298,9 +1427,15 @@ run_package_setup_from_state() {
         info "Guided plan selected no extra packages"
     fi
     state_mark_step_done packages || return 1
+    log_install_event INFO "Completed packages step"
 }
 
 run_ssh_setup_from_state() {
+    if ! should_run_step ssh; then
+        info "Skipping ssh step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting ssh step"
     state_mark_step_started ssh || return 1
     if [ "${INSTALL_SSH_CLIENT:-yes}" = "yes" ]; then
         ensure_shared_ssh_keypair
@@ -1311,9 +1446,15 @@ run_ssh_setup_from_state() {
         info "Guided plan skipped SSH client configuration"
     fi
     state_mark_step_done ssh || return 1
+    log_install_event INFO "Completed ssh step"
 }
 
 run_privilege_setup_from_state() {
+    if ! should_run_step privilege; then
+        info "Skipping privilege step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting privilege step"
     state_mark_step_started privilege || return 1
     if [ "${INSTALL_SUDO:-yes}" = "yes" ] || [ "${INSTALL_DOAS:-yes}" = "yes" ]; then
         configure_sudo_doas || { state_mark_failed privilege; return 1; }
@@ -1321,6 +1462,7 @@ run_privilege_setup_from_state() {
         info "Guided plan skipped sudo/doas configuration"
     fi
     state_mark_step_done privilege || return 1
+    log_install_event INFO "Completed privilege step"
 }
 
 install_completions_from_state() {
@@ -1337,50 +1479,44 @@ install_completions_from_state() {
     esac
 }
 
-write_iosish_docs_wrapper() {
-    wrapper_path="$PRIMARY_HOME/.local/bin/iosish-docs"
-    run_cmd mkdir -p "$PRIMARY_HOME/.local/bin" || return 1
+install_wrapper_script() {
+    target_home="$1"
+    target_user="$2"
+    script_name="$3"
+    script_body="$4"
+    target_dir="$target_home/.local/bin"
+    target_path="$target_dir/$script_name"
+
     if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] write $wrapper_path"
+        info "[dry-run] would write wrapper $target_path"
         return 0
     fi
-    cat > "$wrapper_path" <<'EOF'
+
+    mkdir -p "$target_dir" || return 1
+    cat > "$target_path" <<EOF
 #!/bin/sh
-if [ "$#" -eq 0 ]; then
-    echo "usage: iosish-docs <package> [package...]" >&2
-    exit 1
-fi
-for pkg in "$@"; do
-    apk add --no-cache "$pkg-doc" 2>/dev/null || echo "No -doc package available for $pkg" >&2
-done
+$script_body
 EOF
-    chmod 755 "$wrapper_path"
-    chown "$PRIMARY_USER:$PRIMARY_USER" "$wrapper_path" 2>/dev/null || true
+    chmod 755 "$target_path" || return 1
+    chown -R "$target_user:$target_user" "$target_home/.local" 2>/dev/null || true
 }
 
-write_iosish_completion_wrapper() {
-    wrapper_path="$PRIMARY_HOME/.local/bin/iosish-completions"
-    run_cmd mkdir -p "$PRIMARY_HOME/.local/bin" || return 1
-    if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] write $wrapper_path"
-        return 0
-    fi
-    cat > "$wrapper_path" <<'EOF'
-#!/bin/sh
-set -eu
-for shell_name in "$@"; do
-    case "$shell_name" in
-        zsh) apk add --no-cache zsh-completions ;;
-        bash) apk add --no-cache bash-completion ;;
-        *) echo "unsupported shell: $shell_name" >&2 ;;
-    esac
-done
-EOF
-    chmod 755 "$wrapper_path"
-    chown "$PRIMARY_USER:$PRIMARY_USER" "$wrapper_path" 2>/dev/null || true
+install_docs_wrapper_from_state() {
+    [ "${INSTALL_DOC_WRAPPER:-no}" = "yes" ] || return 0
+    install_wrapper_script "$PRIMARY_HOME" "$PRIMARY_USER" "iosish-docs" 'exec apk add --no-cache "$(printf "%s-doc" "$@")"' || return 1
+}
+
+install_completion_wrapper_from_state() {
+    [ "${INSTALL_COMPLETION_WRAPPER:-no}" = "yes" ] || return 0
+    install_wrapper_script "$PRIMARY_HOME" "$PRIMARY_USER" "iosish-completions" 'echo "Installed completion packages depend on the shells chosen in Shelly. Re-run iOSiSH to reconcile completions."' || return 1
 }
 
 run_extras_setup_from_state() {
+    if ! should_run_step extras; then
+        info "Skipping extras step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting extras step"
     state_mark_step_started extras || return 1
     if [ "${INSTALL_MANPAGES:-yes}" = "yes" ]; then
         install_docs_for_installed_packages
@@ -1388,23 +1524,75 @@ run_extras_setup_from_state() {
         info "Guided plan skipped manpages/docs installation"
     fi
     install_completions_from_state || true
-    if [ "${INSTALL_DOC_WRAPPER:-no}" = "yes" ]; then
-        write_iosish_docs_wrapper || true
-    fi
-    if [ "${INSTALL_COMPLETION_WRAPPER:-no}" = "yes" ]; then
-        write_iosish_completion_wrapper || true
-    fi
+    install_docs_wrapper_from_state || { state_mark_failed extras; return 1; }
+    install_completion_wrapper_from_state || { state_mark_failed extras; return 1; }
     state_mark_step_done extras || return 1
+    log_install_event INFO "Completed extras step"
 }
 
 run_service_setup_from_state() {
+    if ! should_run_step services; then
+        info "Skipping services step; already completed in installer state"
+        return 0
+    fi
+    log_install_event INFO "Starting services step"
     state_mark_step_started services || return 1
-    if [ -n "${ENABLED_SERVICES:-}" ] || [ -n "${START_NOW_SERVICES:-}" ] || [ "${INSTALL_SSHD:-yes}" = "yes" ]; then
+    if [ "${INSTALL_SSHD:-yes}" = "yes" ]; then
         configure_openrc_and_start_sshd || { state_mark_failed services; return 1; }
     else
         info "Guided plan skipped service enablement"
     fi
     state_mark_step_done services || return 1
+    log_install_event INFO "Completed services step"
+}
+
+mark_step_pending_from() {
+    step=$1
+    case "$step" in
+        users) state_set STEP_USERS_DONE "no" ; state_set STEP_SHELLS_DONE "no" ; state_set STEP_PACKAGES_DONE "no" ; state_set STEP_EDITOR_DONE "no" ; state_set STEP_SSH_DONE "no" ; state_set STEP_SSHD_DONE "no" ; state_set STEP_PRIVILEGE_DONE "no" ; state_set STEP_SERVICES_DONE "no" ; state_set STEP_EXTRAS_DONE "no" ;;
+        shells) state_set STEP_SHELLS_DONE "no" ; state_set STEP_SSH_DONE "no" ; state_set STEP_SSHD_DONE "no" ; state_set STEP_SERVICES_DONE "no" ; state_set STEP_EXTRAS_DONE "no" ;;
+        packages) state_set STEP_PACKAGES_DONE "no" ; state_set STEP_EDITOR_DONE "no" ; state_set STEP_PRIVILEGE_DONE "no" ; state_set STEP_EXTRAS_DONE "no" ; state_set STEP_SERVICES_DONE "no" ;;
+        editor) state_set STEP_EDITOR_DONE "no" ;;
+        ssh) state_set STEP_SSH_DONE "no" ; state_set STEP_SSHD_DONE "no" ; state_set STEP_SERVICES_DONE "no" ;;
+        sshd) state_set STEP_SSHD_DONE "no" ; state_set STEP_SERVICES_DONE "no" ;;
+        services) state_set STEP_SERVICES_DONE "no" ;;
+        privilege) state_set STEP_PRIVILEGE_DONE "no" ;;
+        extras) state_set STEP_EXTRAS_DONE "no" ;;
+    esac
+    state_set CURRENT_STEP ""
+    state_set INSTALL_STATUS "in_progress"
+}
+
+rerun_completed_section() {
+    step=$1
+    [ -n "$step" ] || return 1
+    mark_step_pending_from "$step" || return 1
+    log_install_event INFO "Marked section for rerun: $step"
+}
+
+edit_plan_section() {
+    section=$1
+    case "$section" in
+        preferences) plan_installer_preferences ;;
+        users) plan_user_setup ; mark_step_pending_from users ;;
+        shells) plan_shell_setup ; mark_step_pending_from shells ;;
+        packages) plan_package_setup ; mark_step_pending_from packages ;;
+        editor) plan_editor_setup ; mark_step_pending_from editor ;;
+        ssh) plan_ssh_setup ; mark_step_pending_from ssh ;;
+        sshd) plan_sshd_service_setup "${INSTALL_SSHD:-yes}" ; mark_step_pending_from ssh ;;
+        services) plan_sshd_service_setup "${INSTALL_SSHD:-yes}" ; mark_step_pending_from ssh ;;
+        privilege) plan_privilege_setup ; mark_step_pending_from privilege ;;
+        extras) plan_extras_setup ; mark_step_pending_from extras ;;
+        *) return 1 ;;
+    esac
+}
+
+should_run_step() {
+    step=$1
+    if state_step_done "$step"; then
+        return 1
+    fi
+    return 0
 }
 
 run_guided_planning_phase() {
@@ -1418,42 +1606,73 @@ run_guided_planning_phase() {
 
     state_load || return 1
 
-    printf '
-'
-    printf '== iOSiSH Guided Installer Planning ==
-'
+    printf '\n'
+    printf '== iOSiSH Guided Installer Planning ==\n'
 
     install_status=$(state_get INSTALL_STATUS)
 
-    if [ "$install_status" = "in_progress" ] || [ "$install_status" = "failed" ]; then
-        resume_choice=$(prompt_yes_no "Existing installer state found. Resume using saved state?" "yes") || return 1
-        if [ "$resume_choice" = "no" ]; then
-            reset_choice=$(prompt_yes_no "Discard saved state and start over?" "yes") || return 1
-            [ "$reset_choice" = "yes" ] || return 1
-            state_reset || return 1
-            state_load || return 1
-        fi
+    if [ "$install_status" = "new" ] || ! state_any_completed; then
+        run_planning_phase || return 1
+    else
+        show_resume_summary
+        resume_action=$(prompt_resume_action) || return 1
+        case "$resume_action" in
+            resume)
+                log_install_event INFO "Resuming installer from saved state"
+                ;;
+            review)
+                log_install_event INFO "Reviewing saved installer state before execution"
+                ;;
+            reset)
+                state_reset || return 1
+                state_load || return 1
+                run_planning_phase || return 1
+                ;;
+            quit)
+                log_install_event INFO "Installer exited from resume prompt"
+                return 1
+                ;;
+        esac
     fi
 
-    run_planning_phase || return 1
-    state_load || return 1
+    while :; do
+        state_load || return 1
+        show_plan_summary
+        show_progress_summary
+        if state_any_completed; then
+            show_resume_summary
+        fi
 
-    show_plan_summary
-    show_progress_summary
-
-    summary_action=$(prompt_summary_action) || return 1
-    case "$summary_action" in
-        proceed) ;;
-        save-and-quit)
-            state_set INSTALL_STATUS "planned" || true
-            info "Saved guided installer plan to $INSTALLER_STATE_FILE"
-            return 2
-            ;;
-        *) return 1 ;;
-    esac
-
-    apply_guided_state_to_runtime || return 1
-    return 0
+        summary_action=$(prompt_summary_action) || return 1
+        case "$summary_action" in
+            proceed)
+                apply_guided_state_to_runtime || return 1
+                return 0
+                ;;
+            edit)
+                section=$(prompt_edit_section) || return 1
+                edit_plan_section "$section" || return 1
+                ;;
+            rerun)
+                rerun_section=$(prompt_rerun_section) || return 1
+                rerun_completed_section "$rerun_section" || return 1
+                ;;
+            save-quit)
+                state_set INSTALL_STATUS "in_progress"
+                log_install_event INFO "Saved installer plan and exited before execution"
+                return 2
+                ;;
+            reset)
+                state_reset || return 1
+                state_load || return 1
+                run_planning_phase || return 1
+                ;;
+            quit)
+                log_install_event INFO "Installer cancelled during planning summary"
+                return 1
+                ;;
+        esac
+    done
 }
 
 self_test() {
@@ -1471,15 +1690,20 @@ self_test() {
 
 main() {
     parse_args "$@"
+    init_runtime_log
     run_guided_planning_phase
     planning_rc=$?
-    if [ "$planning_rc" -eq 2 ]; then
-        ok "Guided installer plan saved. Exiting before execution."
-        exit 0
-    elif [ "$planning_rc" -ne 0 ]; then
-        err "guided planning phase failed or was cancelled"
-        exit 1
-    fi
+    case "$planning_rc" in
+        0) ;;
+        2)
+            say "Installer plan saved to $(state_file_path). Exiting before execution."
+            exit 0
+            ;;
+        *)
+            err "guided planning phase failed or was cancelled"
+            exit 1
+            ;;
+    esac
     require_root
     apply_guided_state_to_runtime || {
         err "failed to apply guided installer state"
@@ -1495,10 +1719,20 @@ main() {
     run_alias_setup_from_state || exit 1
     run_ssh_setup_from_state || exit 1
     run_privilege_setup_from_state || exit 1
-    configure_sshd_server
+    if should_run_step sshd; then
+        log_install_event INFO "Starting sshd step"
+        state_mark_step_started sshd || true
+        configure_sshd_server || { log_install_event ERROR "sshd step failed"; state_mark_failed sshd || true; exit 1; }
+        state_mark_step_done sshd || true
+        log_install_event INFO "Completed sshd step"
+    else
+        info "Skipping sshd step; already completed in installer state"
+    fi
     fix_permissions
     run_service_setup_from_state || exit 1
     run_extras_setup_from_state || exit 1
+    state_mark_complete || true
+    log_install_event INFO "Installer run completed successfully"
 
     say ""
     say "============================================================"
@@ -1540,7 +1774,6 @@ main() {
     say "Fresh iSH keep-awake helper:"
     say "  cat /dev/location > /dev/null &"
     self_test
-    state_mark_complete 2>/dev/null || true
 }
 
 main "$@"

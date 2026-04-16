@@ -171,9 +171,63 @@ What is next:
 - Added Phase 4 editor subsystem scaffold: state-driven editor choice, EDITOR/VISUAL env setup, starter config writers for vim/neovim/nano, and lightweight plugin-ready scaffolding.
 
 
-## 2026-04-16 - Guided installer patch: SSHD/services/wrappers
-- Added advanced SSHD planning state keys and prompts.
-- Wired SSHD config to use state-driven port/root-login/password-auth/hotspot settings.
-- Added service enable/start state handling for sshd.
-- Added optional iosish-docs and iosish-completions wrapper writers.
-- Added summary option to save plan and quit before execution.
+## 2026-04-16 - Advanced SSHD / service / wrapper pass
+- Added SSHD planning keys for port, root login, password auth, gateway ports, hotspot bypass, enable-at-boot, and start-now.
+- Wired service state through OpenRC/sshd handling.
+- Added optional iosish-docs and iosish-completions wrapper generation.
+- Kept aliases optional and shell-aware under the extras path.
+
+
+## 2026-04-16 - Resume/edit-summary polish and runtime logging
+
+### Completed
+- Added summary review actions: `edit`, `save-quit`, `reset`, `quit`, `proceed`.
+- Added section-level edit routing during the planning summary.
+- Added runtime install logging to `.iosish-install.log`.
+- Added step-aware resume helpers so completed steps can be skipped on resume.
+- Updated `README.md` and `installer/README.md` to reflect the guided-installer architecture.
+
+### Notes
+- The installer is still in a hybrid migration state, but planning/review/resume are materially stronger now.
+- Further polish is still needed for deeper section editing and end-to-end runtime validation inside real iSH sessions.
+
+
+## 2026-04-16 - Real iSH runtime validation prep
+
+### Completed
+- Added `VALIDATION_CHECKLIST.md` to guide manual runtime testing inside real iSH.
+- Added `BUG_REPORT_TEMPLATE.md` for structured runtime bug triage.
+- Added `tests/runtime/README.md` and `tests/runtime/ish-runtime-preflight.sh`.
+- Updated `README.md` and `installer/README.md` to point to the runtime validation assets.
+
+### Notes
+- This step prepares the real-device/runtime pass, but does not replace actual execution inside iSH.
+- Next work should use the checklist and bug template to drive concrete runtime fixes.
+
+
+## Package UX polish update
+
+- Added package-plan review loop
+- Added package exclusions prompt and preview
+- Added support for all-categories preview in both planner and executor
+- Added final package preview to installer summary
+
+- Step 3 completed: polished SSHD/service planning with validated ports, explicit SSHD profiles, separate boot/start service selection, and summary/edit support for SSHD and services.
+
+- Step 4 completed: polished editor subsystem with setup modes, editor plan review/edit loop, stronger profile-aware config generation for vim/neovim/nano, and updated docs.
+
+
+## Update: resume polish and README quick start
+- Added README quick-start clone/run snippet.
+- Improved resume flow with explicit resume/review/reset/quit prompt.
+- Added rerun support for completed sections from the summary screen.
+- Tightened dependency invalidation so edited/rerun sections mark downstream steps pending again.
+
+## Step 6 - test expansion
+- Added tests/state_smoke.sh for state init/reset/marking behavior.
+- Added tests/planner_smoke.sh for package catalog, preview building, and summary output.
+- Updated tests/smoke.sh to execute the new smoke tests.
+- Updated README.md and installer/README.md with test/validation guidance.
+
+
+- Step 7 completed: docs and UX polish. README now includes guided-installer flow, reset/troubleshooting notes, and the prompt helpers now use clearer messaging plus a more explicit section-mode explanation.

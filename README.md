@@ -7,7 +7,7 @@ Bootstrap and workflow tooling for **Alpine Linux on iSH**.
 The repo now separates responsibilities clearly:
 
 - `shelly/shelly.sh` is the **only owner** of shell installation and shell configuration
-- `iOSiSH.sh` handles iSH/bootstrap/SSH/system setup, then delegates shell work to Shelly
+- `iOSiSH.sh` is being refactored into a **state-driven guided installer**
 - optional iOSiSH aliases are offered **after** Shelly completes, and only for the shell(s) the user actually chose
 
 ## Ownership boundary
@@ -20,11 +20,31 @@ The repo now separates responsibilities clearly:
 - writing a state file at `~/.config/shelly/selection.env` so later steps can read the chosen shell setup
 
 ### `iOSiSH.sh` owns
+- the guided planning and execution flow
 - primary-user and hostname setup
 - package/bootstrap tasks outside shell ownership
+- editor setup
 - SSH server/client configuration
 - OpenRC/service wiring
-- optional alias installation into `~/.config/iosish/` after Shelly finishes
+- optional alias, docs, and completion wrapper installation
+
+## Guided installer status
+
+The installer now has a state-driven planning layer with:
+
+- resume-aware state loading
+- a plan summary
+- section editing during review
+- save-and-quit support
+- reset support
+- runtime execution logging
+
+Current state files/logs:
+
+- `./.iosish-state.env` — installer state
+- `./.iosish-install.log` — runtime execution log
+- `REPO_WORKLOG.md` — repo-tracked handoff/progress log
+- `~/.config/shelly/selection.env` — machine-readable shell selection state written by Shelly
 
 ## Alias flow
 
@@ -44,22 +64,63 @@ The alias files live in the repo under:
 
 ## Important migration note
 
-The repo root `.zshrc` and legacy `.aliases` are no longer the canonical install path. They may remain in the repository temporarily as compatibility/reference artifacts, but `iOSiSH.sh` should not install them.
+The repo root `.zshrc` and legacy `.aliases` are no longer the canonical install path. They remain in the repository only as compatibility/reference artifacts unless explicitly removed later.
+
+## Validation and tests
+
+The repository includes lightweight validation assets:
+
+- `tests/smoke.sh` - top-level smoke test runner
+- `tests/state_smoke.sh` - installer state helper checks
+- `tests/planner_smoke.sh` - package planner and summary checks
+- `tests/runtime/ish-runtime-preflight.sh` - preflight checks to run inside iSH before manual validation
+- `VALIDATION_CHECKLIST.md` - manual runtime validation checklist
+- `BUG_REPORT_TEMPLATE.md` - structured bug report template for runtime findings
+
+Run the automated checks from the repo root with:
+
+```sh
+bash tests/smoke.sh
+```
 
 ## Main scripts
 
 ### `iOSiSH.sh`
-- validates config
-- prepares the system and primary user
-- delegates shell setup to Shelly
-- offers optional alias installation
-- configures SSH and supporting iSH workflow pieces
+- loads installer modules
+- builds or resumes installer state
+- shows a review summary with edit/save-quit options
+- applies the selected plan
+- configures user/system/editor/SSH/service pieces
 
 ### `shelly/shelly.sh`
 - interactive or unattended shell installer
 - supports `bash`, `zsh`, `fish`, or `all`
 - writes shell config files directly
 - installs only the shell packages selected by the user/config
+
+## Quick start
+
+### Clone the repo and run the installer
+
+```bash
+git clone https://github.com/<your-user-or-org>/iOSiSH.git
+cd iOSiSH
+sh ./iOSiSH.sh
+```
+
+### One-line clone + run
+
+```bash
+git clone https://github.com/<your-user-or-org>/iOSiSH.git && cd iOSiSH && sh ./iOSiSH.sh
+```
+
+Replace `<your-user-or-org>` with the actual GitHub owner for the repository.
+
+If you already downloaded a zip archive instead of cloning, unpack it, `cd` into the repo directory, and run:
+
+```bash
+sh ./iOSiSH.sh
+```
 
 ## Quick usage
 
@@ -81,10 +142,22 @@ sh ./iOSiSH.sh --dry-run
 bash ./shelly/shelly.sh --primary-user rabbit
 ```
 
-## Generated state and handoff files
 
-- `REPO_WORKLOG.md` — repo-tracked progress and handoff log
-- `~/.config/shelly/selection.env` — machine-readable shell selection state written by Shelly
+## Runtime validation assets
+
+The repo now includes manual runtime-validation assets for testing inside real iSH:
+
+- `VALIDATION_CHECKLIST.md` — scenario-based pass/fail checklist
+- `BUG_REPORT_TEMPLATE.md` — structured bug report template
+- `tests/runtime/ish-runtime-preflight.sh` — preflight checks before a manual validation pass
+
+Recommended workflow:
+
+```bash
+sh tests/runtime/ish-runtime-preflight.sh
+```
+
+Then work through `VALIDATION_CHECKLIST.md` and record any failures with `BUG_REPORT_TEMPLATE.md`.
 
 ## Testing
 
@@ -92,11 +165,69 @@ Current smoke coverage checks:
 
 - `sh -n iOSiSH.sh`
 - `bash -n shelly/shelly.sh`
-- `iOSiSH.sh --help`
+- installer module syntax
 - dry-run smoke execution
 
 ## Notes
 
-- Shell ownership intentionally lives in Shelly now.
+- Shell ownership intentionally lives in Shelly.
 - Root no longer reuses shared Zsh assets through shell symlinks.
 - Optional aliases are shell-aware and opt-in.
+- The package catalog and editor subsystem are now state-driven.
+
+
+## Recent guided-installer package improvements
+
+- package setup now supports a review loop before execution
+- category-based plans can be edited before proceeding
+- package-specific plans can be switched in-place from the planner
+- exclusions are supported for recommended/category/package modes
+
+- SSHD now supports recommended, relaxed, and custom planning modes with port validation and explicit boot/start service selection.
+
+
+## Recent guided-installer polish
+
+- Package selection now supports a richer review loop before execution.
+- SSHD/service planning now supports stronger validation and profile-driven choices.
+- Editor setup now supports editor profiles (`minimal`, `recommended`, `coding`) for Vim, Neovim, and Nano, plus optional lightweight plugin scaffolding for Vim/Neovim.
+
+
+## Guided installer flow
+
+The guided installer currently follows this high-level flow:
+
+1. load or initialize `./.iosish-state.env`
+2. prompt through the planning sections
+3. show a review summary with edit/rerun/save-quit options
+4. execute the selected steps
+5. write progress to `./.iosish-install.log`
+6. allow resume, review, or reset on the next run if the install was interrupted
+
+## Resetting installer state
+
+If you want to throw away the current guided-installer plan, you can:
+
+- choose `reset` from the guided installer when prompted, or
+- remove the state file manually:
+
+```sh
+rm -f ./.iosish-state.env ./.iosish-install.log
+```
+
+## Troubleshooting
+
+### Installer says a module is missing
+Make sure you are running `iOSiSH.sh` from the repository root and that the `installer/` directory is present.
+
+### Installer keeps resuming an old run
+Use the guided installer's `reset` option, or remove `./.iosish-state.env` manually.
+
+### Shell setup does not match expectations
+Check `~/.config/shelly/selection.env` to confirm what Shelly actually selected and wrote.
+
+### Wrappers are installed but not found
+Make sure `~/.local/bin` is in your `PATH`, or run the wrapper with its full path.
+
+### SSHD does not start
+Review the selected SSHD/service settings in the summary, inspect `./.iosish-install.log`, and verify the chosen port and auth settings inside iSH.

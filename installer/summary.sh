@@ -29,18 +29,27 @@ show_plan_summary() {
     printf 'User default shell:     %s\n' "${USER_DEFAULT_SHELL:-}"
     printf 'Root default shell:     %s\n' "${ROOT_DEFAULT_SHELL:-}"
     printf 'Package mode:           %s\n' "${PACKAGE_MODE:-}"
+    printf 'Package profile:        %s\n' "${PACKAGE_PROFILE:-}"
     printf 'Package categories:     %s\n' "${SELECTED_PACKAGE_CATEGORIES:-}"
     printf 'Selected packages:      %s\n' "${SELECTED_PACKAGES:-}"
+    printf 'Excluded packages:      %s\n' "${EXCLUDED_PACKAGES:-}"
     printf 'Editor choice:          %s\n' "${EDITOR_CHOICE:-}"
     printf 'Editor profile:         %s\n' "${EDITOR_PROFILE:-}"
     printf 'Editor config:          %s\n' "${INSTALL_EDITOR_CONFIG:-}"
     printf 'Editor plugins:         %s\n' "${INSTALL_EDITOR_PLUGINS:-}"
     printf 'Install SSH client:     %s\n' "${INSTALL_SSH_CLIENT:-}"
     printf 'Install SSHD:           %s\n' "${INSTALL_SSHD:-}"
+    printf 'SSHD port:              %s\n' "${SSHD_PORT:-}"
+    printf 'SSHD allow root:        %s\n' "${SSHD_ALLOW_ROOT:-}"
+    printf 'SSHD password auth:     %s\n' "${SSHD_PASSWORD_AUTH:-}"
+    printf 'Enable services:        %s\n' "${ENABLED_SERVICES:-}"
+    printf 'Start-now services:     %s\n' "${START_NOW_SERVICES:-}"
     printf 'Install sudo:           %s\n' "${INSTALL_SUDO:-}"
     printf 'Install doas:           %s\n' "${INSTALL_DOAS:-}"
     printf 'Install manpages:       %s\n' "${INSTALL_MANPAGES:-}"
     printf 'Install completions:    %s\n' "${INSTALL_COMPLETIONS:-}"
+    printf 'Install doc wrapper:    %s\n' "${INSTALL_DOC_WRAPPER:-}"
+    printf 'Install completion wrap:%s\n' "${INSTALL_COMPLETION_WRAPPER:-}"
     printf 'Install aliases:        %s\n' "${INSTALL_ALIASES:-}"
     printf 'Output mode:            %s\n' "${OUTPUT_MODE:-}"
     printf 'Color output:           %s\n' "${COLOR_OUTPUT:-}"
@@ -49,17 +58,103 @@ show_plan_summary() {
 prompt_summary_action() {
     printf '\nWhat would you like to do?\n'
     printf '  - proceed\n'
+    printf '  - edit\n'
+    printf '  - rerun\n'
+    printf '  - save-quit\n'
+    printf '  - reset\n'
     printf '  - quit\n'
     while :; do
         printf 'Choice [proceed]: '
         read -r reply || return 1
         [ -n "$reply" ] || reply="proceed"
         case "$reply" in
-            proceed|save-and-quit|quit)
+            proceed|edit|rerun|save-quit|reset|quit)
                 printf '%s\n' "$reply"
                 return 0
                 ;;
         esac
         printf 'Invalid choice.\n' >&2
+    done
+}
+
+prompt_edit_section() {
+    printf '\nWhich section would you like to edit?\n'
+    printf '  - preferences\n'
+    printf '  - users\n'
+    printf '  - shells\n'
+    printf '  - packages\n'
+    printf '  - editor\n'
+    printf '  - ssh\n'
+    printf '  - sshd\n'
+    printf '  - services\n'
+    printf '  - privilege\n'
+    printf '  - extras\n'
+    while :; do
+        printf 'Section [packages]: '
+        read -r reply || return 1
+        [ -n "$reply" ] || reply="packages"
+        case "$reply" in
+            preferences|users|shells|packages|editor|ssh|sshd|services|privilege|extras)
+                printf '%s\n' "$reply"
+                return 0
+                ;;
+        esac
+        printf 'Invalid section.\n' >&2
+    done
+}
+
+
+show_resume_summary() {
+    printf '\n== Resume Status ==\n'
+    printf 'Install status:        %s\n' "${INSTALL_STATUS:-unknown}"
+    printf 'Current step:          %s\n' "${CURRENT_STEP:-}"
+    printf 'Last completed step:   %s\n' "${LAST_COMPLETED_STEP:-}"
+    printf 'Completed step flags:  users=%s shells=%s packages=%s editor=%s ssh=%s sshd=%s privilege=%s services=%s extras=%s\n' \
+        "${STEP_USERS_DONE:-no}" "${STEP_SHELLS_DONE:-no}" "${STEP_PACKAGES_DONE:-no}" "${STEP_EDITOR_DONE:-no}" \
+        "${STEP_SSH_DONE:-no}" "${STEP_SSHD_DONE:-no}" "${STEP_PRIVILEGE_DONE:-no}" "${STEP_SERVICES_DONE:-no}" "${STEP_EXTRAS_DONE:-no}"
+}
+
+prompt_resume_action() {
+    printf '\nExisting installer state detected. What would you like to do?\n'
+    printf '  - resume\n'
+    printf '  - review\n'
+    printf '  - reset\n'
+    printf '  - quit\n'
+    while :; do
+        printf 'Choice [resume]: '
+        read -r reply || return 1
+        [ -n "$reply" ] || reply="resume"
+        case "$reply" in
+            resume|review|reset|quit)
+                printf '%s\n' "$reply"
+                return 0
+                ;;
+        esac
+        printf 'Invalid choice.\n' >&2
+    done
+}
+
+prompt_rerun_section() {
+    printf '\nWhich completed section would you like to rerun?\n'
+    printf '  - users\n'
+    printf '  - shells\n'
+    printf '  - packages\n'
+    printf '  - editor\n'
+    printf '  - ssh\n'
+    printf '  - sshd\n'
+    printf '  - services\n'
+    printf '  - privilege\n'
+    printf '  - extras\n'
+    while :; do
+        printf 'Section [packages]: '
+        read -r reply || return 1
+        [ -n "$reply" ] || reply="packages"
+        case "$reply" in
+            users|shells|packages|editor|ssh|sshd|services|privilege|extras)
+                printf '%s\n' "$reply"
+                return 0
+                ;;
+        esac
+        printf 'Invalid section.\n' >&2
     done
 }

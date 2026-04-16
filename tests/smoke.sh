@@ -19,6 +19,9 @@ fi
 
 ./iOSiSH.sh --help >/dev/null
 
+bash tests/state_smoke.sh
+bash tests/planner_smoke.sh
+
 # iOSiSH should delegate shell ownership instead of handling old Zsh-only flow directly.
 ! grep -q 'write_profiles()' iOSiSH.sh
 ! grep -q 'install_shell_frameworks()' iOSiSH.sh
