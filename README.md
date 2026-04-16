@@ -103,7 +103,7 @@ bash tests/smoke.sh
 ### Clone the repo and run the installer
 
 ```bash
-git clone https://github.com/<your-user-or-org>/iOSiSH.git
+git clone https://github.com/ADHD-exe/iOSiSH.git
 cd iOSiSH
 sh ./iOSiSH.sh
 ```
