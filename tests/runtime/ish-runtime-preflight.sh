@@ -44,4 +44,4 @@ fi
 say 'Next:'
 say '  1. Fill in VALIDATION_CHECKLIST.md while testing.'
 say '  2. Record bugs with BUG_REPORT_TEMPLATE.md.'
-say '  3. Keep .iosish-install.log and .iosish-state.env after failures.'
+say '  3. Keep the active installer runtime log and state file after failures.'

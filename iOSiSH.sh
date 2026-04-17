@@ -127,34 +127,6 @@ run_cmd() {
     "$@"
 }
 
-run_sh() {
-    if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] sh -c $*"
-        return 0
-    fi
-    sh -c "$*"
-}
-
-write_file() {
-    file="$1"
-    content="$2"
-    if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] write $file"
-        return 0
-    fi
-    printf '%s' "$content" > "$file"
-}
-
-append_file() {
-    file="$1"
-    content="$2"
-    if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] append $file"
-        return 0
-    fi
-    printf '%s' "$content" >> "$file"
-}
-
 parse_args() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -750,31 +722,6 @@ install_aliases_for_shell() {
         *) return 0 ;;
     esac
     copy_alias_asset_if_present "$alias_src" "$alias_dst" "$target_user"         && ok "Installed optional $shell_name aliases for $target_user"         || return 1
-}
-
-prompt_for_alias_install() {
-    read_shelly_selection_state || { warn "Shelly state file missing; skipping optional alias integration"; return 0; }
-    shell_summary="$CONFIGURED_SHELLS"
-    [ -n "$shell_summary" ] || shell_summary="$INSTALL_SHELLS_SELECTED"
-    [ -n "$shell_summary" ] || shell_summary="selected shell(s)"
-
-    if [ "$NONINTERACTIVE" = "1" ]; then
-        info "Noninteractive mode: skipping optional alias integration prompt"
-        return 0
-    fi
-
-    confirm_yes "Shelly configured $shell_summary. Install optional iOSiSH aliases for the configured shell(s)?" "N" || {
-        info "Skipped optional alias integration"
-        return 0
-    }
-
-    for shell_name in zsh bash fish; do
-        case " $CONFIGURED_SHELLS " in
-            *" $shell_name "*|*"$shell_name"*)
-                install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
-                ;;
-        esac
-    done
 }
 
 ensure_shared_ssh_keypair() {

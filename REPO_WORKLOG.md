@@ -61,7 +61,7 @@ Implemented:
 ## Known bugs / risks / validation gaps
 - Step 1 was a first pass and still needs end-to-end validation against the full repo flow.
 - `iOSiSH.sh` still likely contains overlapping shell ownership until step 2 is applied.
-- Repo root `.zshrc` and current `.aliases` are still present and may conflict with the new architecture until later steps are completed.
+- Legacy repo-root `.zshrc` and `.aliases` were later moved under `legacy/` to keep them out of the active install path.
 - Tests have not yet been updated to validate the new Shelly-owned shell flow.
 
 ## Handoff notes
@@ -124,7 +124,7 @@ What is next:
 - Added `aliases/common.sh`, `aliases/aliases.zsh`, `aliases/aliases.bash`, `aliases/common.fish`, and `aliases/aliases.fish`.
 - Moved optional alias content toward shell-aware assets instead of reusing the old duplicated repo-root `.aliases` file.
 - Fish aliases were rewritten in fish syntax instead of copying POSIX shell aliases.
-- The legacy repo-root `.aliases` file still exists for backward reference and older documentation paths; full cleanup remains for later checklist steps.
+- The legacy repo-root `.aliases` reference was later moved under `legacy/` to reduce confusion during active installs.
 - Next planned work: step 4 cleanup, including removing obsolete Zsh-only helper code and revisiting remaining legacy docs/tests.
 
 ## Activity update

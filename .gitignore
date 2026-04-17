@@ -22,3 +22,6 @@ __pycache__/
 
 # Installer state
 .iosish-state.env
+
+.iosish-install.log
+iosish_slice.txt

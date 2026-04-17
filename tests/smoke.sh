@@ -4,6 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
 
+state_file="$(mktemp "${TMPDIR:-/tmp}/iosish-state.XXXXXX")"
+log_file="$(mktemp "${TMPDIR:-/tmp}/iosish-log.XXXXXX")"
+cleanup() {
+  rm -f "$state_file" "$log_file" /tmp/iosish-smoke.log
+}
+trap cleanup EXIT
+
 sh -n iOSiSH.sh
 bash -n shelly/shelly.sh
 bash -n aliases/common.sh
@@ -31,7 +38,6 @@ bash tests/planner_smoke.sh
 ! grep -q 'download_text()' iOSiSH.sh
 
 grep -q 'run_shelly_setup()' iOSiSH.sh
-grep -q 'prompt_for_alias_install()' iOSiSH.sh
 grep -q 'read_shelly_selection_state()' iOSiSH.sh
 grep -q 'install_aliases_for_shell()' iOSiSH.sh
 
@@ -69,24 +75,19 @@ grep -q 'aliases.zsh' shelly/shelly.sh
 grep -q 'aliases.bash' shelly/shelly.sh
 grep -q 'aliases.fish' shelly/shelly.sh
 
-# Alias assets should be shell-aware and no longer rely on the legacy repo-root .aliases file.
+# Alias assets should be shell-aware and no longer rely on legacy repo-root compatibility files.
 test -f aliases/common.sh
 test -f aliases/aliases.zsh
 test -f aliases/aliases.bash
 test -f aliases/common.fish
 test -f aliases/aliases.fish
-! grep -q '~/.config/zsh/.aliases' .aliases
-! grep -q 'exec zsh -l' .aliases
-! grep -q 'alias zshrc=' .aliases
 
 # iOSiSH alias install path should target shell-specific destinations.
 grep -q '\.config/iosish/aliases.zsh' iOSiSH.sh
 grep -q '\.config/iosish/aliases.bash' iOSiSH.sh
 grep -q '\.config/iosish/aliases.fish' iOSiSH.sh
 
-grep -q 'Noninteractive mode: skipping optional alias integration prompt' iOSiSH.sh
-
-DRY_RUN=1 NONINTERACTIVE=1 PRIMARY_USER=rabbit PRIMARY_HOME=/home/rabbit PRIMARY_PASSWORD=placeholder ROOT_PASSWORD=placeholder ISH_LISTEN_PORT=22 HOME_PC_HOST=example.com HOME_PC_USER=rabbit HOME_PC_PORT=22 PC_SOCKS_PORT=1080 ./iOSiSH.sh --dry-run --ssh-hardened >/tmp/iosish-smoke.log 2>&1
+INSTALLER_STATE_FILE="$state_file" INSTALLER_RUNTIME_LOG="$log_file" DRY_RUN=1 NONINTERACTIVE=1 PRIMARY_USER=rabbit PRIMARY_HOME=/home/rabbit PRIMARY_PASSWORD=placeholder ROOT_PASSWORD=placeholder ISH_LISTEN_PORT=22 HOME_PC_HOST=example.com HOME_PC_USER=rabbit HOME_PC_PORT=22 PC_SOCKS_PORT=1080 ./iOSiSH.sh --dry-run --ssh-hardened >/tmp/iosish-smoke.log 2>&1
 
 grep -q 'dry-run' /tmp/iosish-smoke.log
 grep -q 'Delegating shell installation and configuration to Shelly' /tmp/iosish-smoke.log

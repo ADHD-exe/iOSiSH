@@ -15,7 +15,7 @@ The repo now separates responsibilities clearly:
 ### `shelly/shelly.sh` owns
 - installing Bash, Zsh, Fish, or all three
 - installing prompt/framework/plugin components for the selected shell(s)
-- creating or updating `.zshrc`, `.bashrc`, and Fish config
+- creating or updating user shell config files such as `.zshrc`, `.bashrc`, and Fish config
 - selecting default shell behavior for root and the primary user
 - writing a state file at `~/.config/shelly/selection.env` so later steps can read the chosen shell setup
 
@@ -41,8 +41,8 @@ The installer now has a state-driven planning layer with:
 
 Current state files/logs:
 
-- `./.iosish-state.env` — installer state
-- `./.iosish-install.log` — runtime execution log
+- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) — installer state
+- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`) — runtime execution log
 - `REPO_WORKLOG.md` — repo-tracked handoff/progress log
 - `~/.config/shelly/selection.env` — machine-readable shell selection state written by Shelly
 
@@ -64,7 +64,7 @@ The alias files live in the repo under:
 
 ## Important migration note
 
-The repo root `.zshrc` and legacy `.aliases` are no longer the canonical install path. They remain in the repository only as compatibility/reference artifacts unless explicitly removed later.
+Legacy repo-root shell reference files now live under `legacy/`. They are not part of the active install path and should not be copied into a home directory as-is.
 
 ## Validation and tests
 
@@ -195,11 +195,11 @@ Current smoke coverage checks:
 
 The guided installer currently follows this high-level flow:
 
-1. load or initialize `./.iosish-state.env`
+1. load or initialize `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`)
 2. prompt through the planning sections
 3. show a review summary with edit/rerun/save-quit options
 4. execute the selected steps
-5. write progress to `./.iosish-install.log`
+5. write progress to `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`)
 6. allow resume, review, or reset on the next run if the install was interrupted
 
 ## Resetting installer state
@@ -210,7 +210,7 @@ If you want to throw away the current guided-installer plan, you can:
 - remove the state file manually:
 
 ```sh
-rm -f ./.iosish-state.env ./.iosish-install.log
+rm -f "${INSTALLER_STATE_FILE:-./.iosish-state.env}" "${INSTALLER_RUNTIME_LOG:-./.iosish-install.log}"
 ```
 
 ## Troubleshooting
@@ -219,7 +219,7 @@ rm -f ./.iosish-state.env ./.iosish-install.log
 Make sure you are running `iOSiSH.sh` from the repository root and that the `installer/` directory is present.
 
 ### Installer keeps resuming an old run
-Use the guided installer's `reset` option, or remove `./.iosish-state.env` manually.
+Use the guided installer's `reset` option, or remove `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) manually.
 
 ### Shell setup does not match expectations
 Check `~/.config/shelly/selection.env` to confirm what Shelly actually selected and wrote.
@@ -228,4 +228,4 @@ Check `~/.config/shelly/selection.env` to confirm what Shelly actually selected 
 Make sure `~/.local/bin` is in your `PATH`, or run the wrapper with its full path.
 
 ### SSHD does not start
-Review the selected SSHD/service settings in the summary, inspect `./.iosish-install.log`, and verify the chosen port and auth settings inside iSH.
+Review the selected SSHD/service settings in the summary, inspect `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`), and verify the chosen port and auth settings inside iSH.

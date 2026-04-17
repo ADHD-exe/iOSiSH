@@ -20,7 +20,7 @@ This directory contains the guided-installer modules for `iOSiSH.sh`.
 
 By default, installer state is stored in:
 
-- `./.iosish-state.env`
+- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`)
 
 You can override this path by exporting:
 
@@ -32,7 +32,7 @@ INSTALLER_STATE_FILE=/path/to/custom-state.env
 
 By default, runtime execution logging is written to:
 
-- `./.iosish-install.log`
+- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`)
 
 This log is intended to help with interrupted iSH sessions and handoffs.
 
@@ -134,7 +134,7 @@ Sections may still have a few legacy prompts, but new or polished sections shoul
 
 ## Resume and logging notes
 
-- `./.iosish-state.env` stores the current installer plan and step progress.
-- `./.iosish-install.log` records runtime execution events.
+- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) stores the current installer plan and step progress.
+- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`) records runtime execution events.
 - `save-quit` keeps the current plan so it can be resumed later.
 - `reset` clears the guided plan so a new one can be created from scratch.

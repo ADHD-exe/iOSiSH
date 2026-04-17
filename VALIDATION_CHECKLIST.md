@@ -32,7 +32,7 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 ### 2.1 Planning starts correctly
 - [ ] installer launches the guided planning phase
 - [ ] no missing module errors
-- [ ] `.iosish-state.env` is created
+- [ ] installer state file is created at the active `$INSTALLER_STATE_FILE` path
 - [ ] defaults initialize correctly
 - [ ] planning prompts appear in expected order
 
@@ -270,7 +270,7 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 
 ### 15.2 Installer docs
 - [ ] `installer/README.md` matches actual module behavior
-- [ ] `.iosish-state.env.example` matches current keys
+- [ ] `.iosish-state.env.example` matches current keys, defaults, and documented optional flags
 - [ ] wrapper docs are accurate if present
 
 ## 16. Final pass/fail summary
