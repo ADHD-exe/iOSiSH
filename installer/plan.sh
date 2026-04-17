@@ -238,19 +238,23 @@ prompt_package_plan_action() {
 Package plan actions:
 '
     printf '  - proceed
-'
+' >&2
     printf '  - edit-mode
-'
+' >&2
     printf '  - edit-categories
-'
+' >&2
     printf '  - edit-packages
-'
+' >&2
     printf '  - edit-exclusions
-'
+' >&2
     while :; do
-        printf 'Choice [proceed]: '
-        read -r reply || return 1
-        [ -n "$reply" ] || reply="proceed"
+        printf 'Choice [proceed]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="proceed"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="proceed"
+        fi
         case "$reply" in
             proceed|edit-mode|edit-categories|edit-packages|edit-exclusions)
                 printf '%s
@@ -289,9 +293,13 @@ plan_user_setup() {
         return 0
     fi
 
-    printf 'Enter primary username [user]: '
-    read -r primary_user || return 1
-    [ -n "$primary_user" ] || primary_user="user"
+    printf 'Enter primary username [rabbit]: ' >&2
+    if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+        primary_user=${PRIMARY_USER:-rabbit}
+    else
+        read -r primary_user || return 1
+        [ -n "$primary_user" ] || primary_user="${PRIMARY_USER:-rabbit}"
+    fi
 
     state_set PRIMARY_USER "$primary_user"
     state_set PRIMARY_HOME "/home/$primary_user"
@@ -352,7 +360,11 @@ plan_package_setup() {
     configure_package_mode_state "$package_mode" || return 1
 
     if [ "$package_mode" != "skip" ]; then
-        excluded=$(prompt_package_exclusions) || return 1
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            excluded="${EXCLUDED_PACKAGES:-}"
+        else
+            excluded=$(prompt_package_exclusions) || return 1
+        fi
         state_set EXCLUDED_PACKAGES "$excluded"
     fi
 
@@ -368,7 +380,11 @@ plan_package_setup() {
                 package_mode=$(prompt_choice                     "Choose package setup mode:"                     "${PACKAGE_MODE:-recommended}"                     "skip" "recommended" "all-categories" "category" "package") || return 1
                 configure_package_mode_state "$package_mode" || return 1
                 if [ "$package_mode" != "skip" ]; then
-                    excluded=$(prompt_package_exclusions) || return 1
+                    if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+                        excluded="${EXCLUDED_PACKAGES:-}"
+                    else
+                        excluded=$(prompt_package_exclusions) || return 1
+                    fi
                     state_set EXCLUDED_PACKAGES "$excluded"
                 fi
                 ;;
@@ -417,7 +433,7 @@ editor_choice_description() {
 show_editor_choices() {
     printf '
 Editor options:
-'
+' >&2
     for choice in vim neovim nano skip; do
         printf '  - %s
 ' "$choice"
@@ -455,9 +471,13 @@ Editor plan actions:
     printf '  - edit-plugins
 '
     while :; do
-        printf 'Choice [proceed]: '
-        read -r reply || return 1
-        [ -n "$reply" ] || reply="proceed"
+        printf 'Choice [proceed]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="proceed"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="proceed"
+        fi
         case "$reply" in
             proceed|edit-editor|edit-profile|edit-config|edit-plugins)
                 printf '%s

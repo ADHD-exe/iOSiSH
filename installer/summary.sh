@@ -64,9 +64,13 @@ prompt_summary_action() {
     printf '  - reset\n'
     printf '  - quit\n'
     while :; do
-        printf 'Choice [proceed]: '
-        read -r reply || return 1
-        [ -n "$reply" ] || reply="proceed"
+        printf 'Choice [proceed]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="proceed"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="proceed"
+        fi
         case "$reply" in
             proceed|edit|rerun|save-quit|reset|quit)
                 printf '%s\n' "$reply"
@@ -90,9 +94,13 @@ prompt_edit_section() {
     printf '  - privilege\n'
     printf '  - extras\n'
     while :; do
-        printf 'Section [packages]: '
-        read -r reply || return 1
-        [ -n "$reply" ] || reply="packages"
+        printf 'Section [packages]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="packages"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="packages"
+        fi
         case "$reply" in
             preferences|users|shells|packages|editor|ssh|sshd|services|privilege|extras)
                 printf '%s\n' "$reply"
@@ -121,9 +129,13 @@ prompt_resume_action() {
     printf '  - reset\n'
     printf '  - quit\n'
     while :; do
-        printf 'Choice [resume]: '
-        read -r reply || return 1
-        [ -n "$reply" ] || reply="resume"
+        printf 'Choice [resume]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="resume"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="resume"
+        fi
         case "$reply" in
             resume|review|reset|quit)
                 printf '%s\n' "$reply"
@@ -146,9 +158,13 @@ prompt_rerun_section() {
     printf '  - privilege\n'
     printf '  - extras\n'
     while :; do
-        printf 'Section [packages]: '
-        read -r reply || return 1
-        [ -n "$reply" ] || reply="packages"
+        printf 'Section [packages]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="packages"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="packages"
+        fi
         case "$reply" in
             users|shells|packages|editor|ssh|sshd|services|privilege|extras)
                 printf '%s\n' "$reply"

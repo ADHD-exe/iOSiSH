@@ -170,8 +170,17 @@ parse_args() {
 }
 
 cmd_exists() { command -v "$1" >/dev/null 2>&1; }
-pkg_installed() { apk info -e "$1" >/dev/null 2>&1; }
-pkg_exists() { apk search -x "$1" >/dev/null 2>&1; }
+pkg_installed() {
+    cmd_exists apk || return 1
+    apk info -e "$1" >/dev/null 2>&1
+}
+pkg_exists() {
+    if ! cmd_exists apk; then
+        [ "${DRY_RUN:-0}" = "1" ] && return 0
+        return 1
+    fi
+    apk search -x "$1" >/dev/null 2>&1
+}
 
 
 populate_defaults() {
@@ -667,7 +676,14 @@ run_shelly_setup() {
     src_dir="$(script_dir)"
     shelly_script="$src_dir/shelly/shelly.sh"
     [ -f "$shelly_script" ] || { err "Missing Shelly installer at $shelly_script"; exit 1; }
-    cmd_exists bash || { err "bash is required to run Shelly"; exit 1; }
+    if ! cmd_exists bash; then
+        if [ "$DRY_RUN" = "1" ]; then
+            info "[dry-run] apk add --no-cache bash"
+        else
+            info "bash not found; installing bash before running Shelly"
+            apk add --no-cache bash >/dev/null 2>&1 || { err "failed to install bash for Shelly"; exit 1; }
+        fi
+    fi
 
     info "Delegating shell installation and configuration to Shelly"
     if [ "$DRY_RUN" = "1" ]; then
@@ -682,6 +698,14 @@ run_shelly_setup() {
     fi
     status=$?
     [ "$status" -eq 0 ] || { err "Shelly failed with exit code $status"; exit 1; }
+    if ! sync_shelly_state_into_installer_state; then
+        err "Shelly completed but selection state could not be read"
+        exit 1
+    fi
+    case ",${CONFIGURED_SHELLS:-}," in
+        *,${USER_DEFAULT_SHELL:-},*|*,${ROOT_DEFAULT_SHELL:-},*) : ;;
+        *) [ -n "${USER_DEFAULT_SHELL:-}${ROOT_DEFAULT_SHELL:-}" ] && { err "Shelly did not confirm configured default shells"; exit 1; } ;;
+    esac
     ok "Shelly finished shell setup"
 }
 
@@ -971,6 +995,19 @@ configure_sshd_server() {
     ensure_sshd_config_key "PermitEmptyPasswords" "no"
     ensure_sshd_config_key "Compression" "no"
     ensure_sshd_config_key "PermitTTY" "yes"
+    if [ "$DRY_RUN" = "1" ]; then
+        ok "Configured sshd server"
+        return 0
+    fi
+    if ! cmd_exists sshd && [ ! -x /usr/sbin/sshd ]; then
+        err "sshd binary not found after configuration"
+        return 1
+    fi
+    if cmd_exists sshd; then
+        sshd -t >/dev/null 2>&1 || { err "sshd configuration validation failed"; return 1; }
+    elif [ -x /usr/sbin/sshd ]; then
+        /usr/sbin/sshd -t >/dev/null 2>&1 || { err "sshd configuration validation failed"; return 1; }
+    fi
     ok "Configured sshd server"
 }
 
@@ -987,21 +1024,25 @@ configure_openrc_and_start_sshd() {
         *" sshd "*)
             if cmd_exists rc-update; then
                 rc-update add sshd default >/dev/null 2>&1 || true
+            else
+                warn "rc-update not available; sshd will not be enabled at boot"
             fi
             ;;
     esac
     case " ${START_NOW_SERVICES:-} " in
         *" sshd "*)
+            started=0
             if cmd_exists service; then
-                run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 || true
+                run_cmd service sshd restart >/dev/null 2>&1 || run_cmd service sshd start >/dev/null 2>&1 && started=1
             fi
-            if cmd_exists rc-service; then
-                run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 || true
+            if [ "$started" -ne 1 ] && cmd_exists rc-service; then
+                run_cmd rc-service sshd restart >/dev/null 2>&1 || run_cmd rc-service sshd start >/dev/null 2>&1 && started=1
             fi
-            if cmd_exists sshd; then
+            if [ "$started" -ne 1 ] && { cmd_exists sshd || [ -x /usr/sbin/sshd ]; }; then
                 run_cmd pkill sshd >/dev/null 2>&1 || true
-                run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 || true
+                run_cmd /usr/sbin/sshd >/dev/null 2>&1 || run_cmd sshd >/dev/null 2>&1 && started=1
             fi
+            [ "$started" -eq 1 ] || { err "failed to start sshd with available service commands"; return 1; }
             ;;
     esac
     ok "Reconciled requested sshd service state"

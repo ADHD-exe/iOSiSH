@@ -6,14 +6,14 @@ print_section_header() {
   title=$1
   printf '
 == %s ==
-' "$title"
+' "$title" >&2
 }
 
 print_help_text() {
   help_text=$1
   [ -n "$help_text" ] || return 0
   printf '%s
-' "$help_text"
+' "$help_text" >&2
 }
 
 prompt_yes_no() {
@@ -27,7 +27,15 @@ prompt_yes_no() {
     *) printf '%s [y/n]: ' "$prompt_text" ;;
     esac
 
-    read -r reply || return 1
+    if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+      reply=$default_value
+    else
+      if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+      reply=$default_value
+    else
+      read -r reply || return 1
+    fi
+    fi
     reply=$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')
 
     [ -n "$reply" ] || reply=$default_value
@@ -56,17 +64,17 @@ prompt_choice() {
   shift 2
 
   printf '%s
-' "$prompt_text"
+' "$prompt_text" >&2
   for choice in "$@"; do
     printf '  - %s
-' "$choice"
+' "$choice" >&2
   done
 
   while :; do
     if [ -n "$default_value" ]; then
-      printf 'Choice [%s]: ' "$default_value"
+      printf 'Choice [%s]: ' "$default_value" >&2
     else
-      printf 'Choice: '
+      printf 'Choice: ' >&2
     fi
 
     read -r reply || return 1
