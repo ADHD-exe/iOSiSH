@@ -98,8 +98,12 @@ prompt_package_categories() {
     while :; do
         show_package_catalog
         printf 'Enter category list (comma-separated) or type all [core,network,ssh,editors]: ' >&2
-        read -r categories || return 1
-        [ -n "$categories" ] || categories='core,network,ssh,editors'
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            categories=${SELECTED_PACKAGE_CATEGORIES:-core,network,ssh,editors}
+        else
+            read -r categories || return 1
+            [ -n "$categories" ] || categories='core,network,ssh,editors'
+        fi
 
         if [ "$categories" = 'all' ]; then
             package_catalog_categories | paste -sd, -
@@ -119,7 +123,11 @@ prompt_package_categories() {
 prompt_package_list() {
     while :; do
         printf 'Enter package list (space-separated): ' >&2
-        read -r packages || return 1
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            packages=${SELECTED_PACKAGES:-}
+        else
+            read -r packages || return 1
+        fi
         [ -n "$packages" ] || {
             printf 'Please enter at least one package, or choose another package mode.
 ' >&2
@@ -145,7 +153,11 @@ prompt_package_list() {
 prompt_package_exclusions() {
     while :; do
         printf 'Enter packages to exclude (space-separated) or leave blank for none: ' >&2
-        read -r excluded || return 1
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            excluded=${EXCLUDED_PACKAGES:-}
+        else
+            read -r excluded || return 1
+        fi
         [ -n "$excluded" ] || {
             printf '
 '
@@ -436,9 +448,9 @@ Editor options:
 ' >&2
     for choice in vim neovim nano skip; do
         printf '  - %s
-' "$choice"
+' "$choice" >&2
         printf '      %s
-' "$(editor_choice_description "$choice")"
+' "$(editor_choice_description "$choice")" >&2
     done
 }
 
@@ -461,7 +473,7 @@ prompt_editor_plan_action() {
 Editor plan actions:
 ' >&2
     printf '  - proceed
-'
+' >&2
     printf '  - edit-editor
 ' >&2
     printf '  - edit-profile
@@ -605,8 +617,12 @@ prompt_sshd_port() {
     default_port=${1:-2222}
     while :; do
         printf 'Enter SSHD port [%s]: ' "$default_port" >&2
-        read -r sshd_port || return 1
-        [ -n "$sshd_port" ] || sshd_port="$default_port"
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            sshd_port=$default_port
+        else
+            read -r sshd_port || return 1
+            [ -n "$sshd_port" ] || sshd_port="$default_port"
+        fi
         if is_valid_port "$sshd_port"; then
             printf '%s
 ' "$sshd_port"
@@ -653,8 +669,12 @@ prompt_service_targets() {
         else
             printf 'Services [none]: ' >&2
         fi
-        read -r services || return 1
-        [ -n "$services" ] || services="$default_services"
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            services=$default_services
+        else
+            read -r services || return 1
+            [ -n "$services" ] || services="$default_services"
+        fi
         normalized=$(normalize_service_list "$services") || return 1
         if [ -z "$services" ] || [ -n "$normalized" ] || [ -z "$default_services" ]; then
             printf '%s
