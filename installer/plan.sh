@@ -97,7 +97,7 @@ validate_category_list() {
 prompt_package_categories() {
     while :; do
         show_package_catalog
-        printf 'Enter category list (comma-separated) or type all [core,network,ssh,editors]: '
+        printf 'Enter category list (comma-separated) or type all [core,network,ssh,editors]: ' >&2
         read -r categories || return 1
         [ -n "$categories" ] || categories='core,network,ssh,editors'
 
@@ -118,7 +118,7 @@ prompt_package_categories() {
 
 prompt_package_list() {
     while :; do
-        printf 'Enter package list (space-separated): '
+        printf 'Enter package list (space-separated): ' >&2
         read -r packages || return 1
         [ -n "$packages" ] || {
             printf 'Please enter at least one package, or choose another package mode.
@@ -144,7 +144,7 @@ prompt_package_list() {
 
 prompt_package_exclusions() {
     while :; do
-        printf 'Enter packages to exclude (space-separated) or leave blank for none: '
+        printf 'Enter packages to exclude (space-separated) or leave blank for none: ' >&2
         read -r excluded || return 1
         [ -n "$excluded" ] || {
             printf '
@@ -236,7 +236,7 @@ show_package_plan_review() {
 prompt_package_plan_action() {
     printf '
 Package plan actions:
-'
+' >&2
     printf '  - proceed
 ' >&2
     printf '  - edit-mode
@@ -459,17 +459,17 @@ show_editor_plan_review() {
 prompt_editor_plan_action() {
     printf '
 Editor plan actions:
-'
+' >&2
     printf '  - proceed
 '
     printf '  - edit-editor
-'
+' >&2
     printf '  - edit-profile
-'
+' >&2
     printf '  - edit-config
-'
+' >&2
     printf '  - edit-plugins
-'
+' >&2
     while :; do
         printf 'Choice [proceed]: ' >&2
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
@@ -604,7 +604,7 @@ is_valid_port() {
 prompt_sshd_port() {
     default_port=${1:-2222}
     while :; do
-        printf 'Enter SSHD port [%s]: ' "$default_port"
+        printf 'Enter SSHD port [%s]: ' "$default_port" >&2
         read -r sshd_port || return 1
         [ -n "$sshd_port" ] || sshd_port="$default_port"
         if is_valid_port "$sshd_port"; then
@@ -642,16 +642,16 @@ prompt_service_targets() {
     prompt_text=$1
     default_services=$2
     printf '%s
-' "$prompt_text"
+' "$prompt_text" >&2
     printf 'Available services: sshd
-'
+' >&2
     printf 'Enter a space-separated service list or leave blank for none.
-'
+' >&2
     while :; do
         if [ -n "$default_services" ]; then
-            printf 'Services [%s]: ' "$default_services"
+            printf 'Services [%s]: ' "$default_services" >&2
         else
-            printf 'Services [none]: '
+            printf 'Services [none]: ' >&2
         fi
         read -r services || return 1
         [ -n "$services" ] || services="$default_services"

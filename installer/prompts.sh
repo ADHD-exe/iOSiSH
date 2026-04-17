@@ -22,35 +22,31 @@ prompt_yes_no() {
 
   while :; do
     case "$default_value" in
-    yes) printf '%s [Y/n]: ' "$prompt_text" ;;
-    no) printf '%s [y/N]: ' "$prompt_text" ;;
-    *) printf '%s [y/n]: ' "$prompt_text" ;;
+      yes) printf '%s [Y/n]: ' "$prompt_text" >&2 ;;
+      no)  printf '%s [y/N]: ' "$prompt_text" >&2 ;;
+      *)   printf '%s [y/n]: ' "$prompt_text" >&2 ;;
     esac
 
     if [ "${NONINTERACTIVE:-0}" = "1" ]; then
       reply=$default_value
     else
-      if [ "${NONINTERACTIVE:-0}" = "1" ]; then
-      reply=$default_value
-    else
       read -r reply || return 1
     fi
-    fi
-    reply=$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')
 
+    reply=$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')
     [ -n "$reply" ] || reply=$default_value
 
     case "$reply" in
-    y | yes)
-      printf 'yes
+      y|yes)
+        printf 'yes
 '
-      return 0
-      ;;
-    n | no)
-      printf 'no
+        return 0
+        ;;
+      n|no)
+        printf 'no
 '
-      return 0
-      ;;
+        return 0
+        ;;
     esac
 
     printf 'Invalid response. Please answer yes or no.
@@ -77,15 +73,19 @@ prompt_choice() {
       printf 'Choice: ' >&2
     fi
 
-    read -r reply || return 1
+    if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+      reply=$default_value
+    else
+      read -r reply || return 1
+    fi
     [ -n "$reply" ] || reply=$default_value
 
     for choice in "$@"; do
-      [ "$reply" = "$choice" ] && {
+      if [ "$reply" = "$choice" ]; then
         printf '%s
 ' "$reply"
         return 0
-      }
+      fi
     done
 
     printf 'Invalid choice. Please choose one of the listed options.
@@ -97,5 +97,5 @@ prompt_section_action() {
   section_name=$1
   print_section_header "$section_name"
   print_help_text "Choose skip to leave this section unchanged, recommended to use the default guided setup, or customize to pick settings yourself."
-  prompt_choice "How would you like to handle ${section_name}?" "recommended"     "skip" "recommended" "customize"
+  prompt_choice "How would you like to handle ${section_name}?" "recommended" "skip" "recommended" "customize"
 }

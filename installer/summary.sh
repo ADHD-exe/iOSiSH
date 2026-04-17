@@ -56,13 +56,13 @@ show_plan_summary() {
 }
 
 prompt_summary_action() {
-    printf '\nWhat would you like to do?\n'
-    printf '  - proceed\n'
-    printf '  - edit\n'
-    printf '  - rerun\n'
-    printf '  - save-quit\n'
-    printf '  - reset\n'
-    printf '  - quit\n'
+    printf '\nWhat would you like to do?\n' >&2
+    printf '  - proceed\n' >&2
+    printf '  - edit\n' >&2
+    printf '  - rerun\n' >&2
+    printf '  - save-quit\n' >&2
+    printf '  - reset\n' >&2
+    printf '  - quit\n' >&2
     while :; do
         printf 'Choice [proceed]: ' >&2
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
@@ -82,17 +82,17 @@ prompt_summary_action() {
 }
 
 prompt_edit_section() {
-    printf '\nWhich section would you like to edit?\n'
-    printf '  - preferences\n'
-    printf '  - users\n'
-    printf '  - shells\n'
-    printf '  - packages\n'
-    printf '  - editor\n'
-    printf '  - ssh\n'
-    printf '  - sshd\n'
-    printf '  - services\n'
-    printf '  - privilege\n'
-    printf '  - extras\n'
+    printf '\nWhich section would you like to edit?\n' >&2
+    printf '  - preferences\n' >&2
+    printf '  - users\n' >&2
+    printf '  - shells\n' >&2
+    printf '  - packages\n' >&2
+    printf '  - editor\n' >&2
+    printf '  - ssh\n' >&2
+    printf '  - sshd\n' >&2
+    printf '  - services\n' >&2
+    printf '  - privilege\n' >&2
+    printf '  - extras\n' >&2
     while :; do
         printf 'Section [packages]: ' >&2
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
@@ -123,11 +123,11 @@ show_resume_summary() {
 }
 
 prompt_resume_action() {
-    printf '\nExisting installer state detected. What would you like to do?\n'
-    printf '  - resume\n'
-    printf '  - review\n'
-    printf '  - reset\n'
-    printf '  - quit\n'
+    printf '\nExisting installer state detected. What would you like to do?\n' >&2
+    printf '  - resume\n' >&2
+    printf '  - review\n' >&2
+    printf '  - reset\n' >&2
+    printf '  - quit\n' >&2
     while :; do
         printf 'Choice [resume]: ' >&2
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
@@ -147,16 +147,16 @@ prompt_resume_action() {
 }
 
 prompt_rerun_section() {
-    printf '\nWhich completed section would you like to rerun?\n'
-    printf '  - users\n'
-    printf '  - shells\n'
-    printf '  - packages\n'
-    printf '  - editor\n'
-    printf '  - ssh\n'
-    printf '  - sshd\n'
-    printf '  - services\n'
-    printf '  - privilege\n'
-    printf '  - extras\n'
+    printf '\nWhich completed section would you like to rerun?\n' >&2
+    printf '  - users\n' >&2
+    printf '  - shells\n' >&2
+    printf '  - packages\n' >&2
+    printf '  - editor\n' >&2
+    printf '  - ssh\n' >&2
+    printf '  - sshd\n' >&2
+    printf '  - services\n' >&2
+    printf '  - privilege\n' >&2
+    printf '  - extras\n' >&2
     while :; do
         printf 'Section [packages]: ' >&2
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
