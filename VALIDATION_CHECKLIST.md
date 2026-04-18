@@ -19,6 +19,7 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 - [ ] `sh -n installer/prompts.sh` passes
 - [ ] `sh -n installer/summary.sh` passes
 - [ ] `sh -n installer/plan.sh` passes
+- [ ] `bash -n shells/shells.sh` passes
 
 ### 1.2 File presence
 - [ ] `installer/` directory exists
@@ -70,28 +71,29 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 - [ ] shell setup applies to the selected user
 - [ ] user-level files land in the correct home directory
 
-## 5. Shell integration
+## 5. native shell setup integration
 ### 5.1 Zsh-only
-- [ ] shell setup runs when selected
+- [ ] native shell setup runs when selected
 - [ ] only Zsh-related packages are installed
-- [ ] `.zshrc` is created when Zsh is selected
+- [ ] `.zshrc` is created by native shell setup
 - [ ] alias hook exists in `.zshrc`
 - [ ] completion behavior is correct for Zsh
-- [ ] installer state reflects Zsh correctly
+- [ ] `selection.env` is written
+- [ ] installer imports native shell setup state correctly
 
 ### 5.2 Bash-only
 - [ ] only Bash-related packages are installed
 - [ ] `.bashrc` is created/updated
 - [ ] alias hook exists in `.bashrc`
 - [ ] Bash completion behavior is correct
-- [ ] installer state reflects Bash correctly
+- [ ] state import works
 
 ### 5.3 Fish-only
 - [ ] only Fish-related packages are installed
 - [ ] Fish config is created/updated
 - [ ] Fish alias hook exists
 - [ ] Fish config syntax remains valid
-- [ ] installer state reflects Fish correctly
+- [ ] state import works
 
 ### 5.4 All shells
 - [ ] all selected shell packages install correctly
@@ -264,7 +266,7 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 - [ ] README matches current guided installer behavior
 - [ ] README describes state-driven flow
 - [ ] README mentions resume/logging behavior
-- [ ] README explains installer-owned shell flow clearly
+- [ ] README explains native shell setup ownership clearly
 
 ### 15.2 Installer docs
 - [ ] `installer/README.md` matches actual module behavior

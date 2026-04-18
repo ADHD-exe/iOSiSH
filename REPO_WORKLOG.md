@@ -1,13 +1,6 @@
 # iOSiSH Repository Worklog
 
-> Historical maintainer log. This file documents the Shelly-to-native-shell-installer migration that has already been completed. It is preserved for project history and handoff context, not as the current architecture source of truth. For current behavior, use `README.md`, `installer/README.md`, and the installer modules under `installer/`.
-
 Purpose: persistent handoff log for maintainers, contributors, or future agents. Update this file whenever meaningful work is started, completed, blocked, or reprioritized so recovery after interruption is fast and accurate.
-
-## Current status
-- Shelly has been removed from the active installer path and from the repository.
-- Shell installation and configuration are now handled by `iOSiSH.sh` + `installer/shells.sh`.
-- Older entries below are retained as historical migration notes.
 
 ## How to use this log
 - Add a new dated entry at the top of the Activity Log.
@@ -16,23 +9,27 @@ Purpose: persistent handoff log for maintainers, contributors, or future agents.
 - Update the checklist status when a numbered phase is completed.
 - Prefer file/function names over vague descriptions.
 
-## Historical migration objective
-This section is retained for historical context from the Shelly migration effort and is no longer the active project objective.
+## Current objective
+Refactor the repository so `shells/shells.sh` is the sole owner of shell installation and shell configuration, while `iOSiSH.sh` delegates shell setup to native shell setup and only resumes afterward for optional alias integration and other iSH-specific setup.
 
-## Final migration outcome
-- [x] Shell ownership moved into the state-driven installer.
-- [x] Shelly runtime handoff removed.
-- [x] Shell-aware alias assets retained.
-- [x] Legacy repo-root shell references moved under `legacy/`.
-- [x] Documentation and tests updated to the native shell flow.
+## Active checklist status
+- [x] 1. `shells/shells.sh` — make native shell setup the only shell owner (first pass complete)
+- [ ] 2. `iOSiSH.sh` — remove shell ownership and delegate to native shell setup
+- [x] 3. `.aliases` — split into shell-aware files
+- [x] 4. `.zshrc` — stop using as canonical repo-managed config
+- [ ] 5. New alias install path in `iOSiSH.sh`
+- [ ] 6. Documentation updates
+- [ ] 7. Test updates
 
-## Historical last known state
-- The notes below capture the intermediate migration checkpoints that existed before the native shell module replaced Shelly.
+## Last known good state
+- Archive after step 1 existed as `iOSiSH_step1_shells_fixed.tar.gz`.
+- `bash -n shells/shells.sh` passed after the step 1 edits.
+- Step 2 had **not** started when this log entry was created.
 
 ## Known completed work
 ### Step 1 completed (first pass)
 File changed:
-- `shelly/shelly.sh`
+- `shells/shells.sh`
 
 Implemented:
 - Package installation now respects selected shells instead of always installing bash, zsh, and fish.
@@ -47,25 +44,25 @@ Implemented:
   - `~/.config/iosish/aliases.zsh`
   - `~/.config/iosish/aliases.bash`
   - `~/.config/iosish/aliases.fish`
-- Added Shelly state file output:
-  - `~/.config/shelly/selection.env`
-- Moved Zsh config generation further toward Shelly ownership.
+- Added native shell setup state file output:
+  - `~/.config/shells/selection.env`
+- Moved Zsh config generation further toward native shell setup ownership.
 
 ## Known remaining work
 ### Immediate next step
-- Modify `iOSiSH.sh` so it no longer installs or forces Zsh directly and instead delegates shell setup to `shelly/shelly.sh`.
+- Modify `iOSiSH.sh` so it no longer installs or forces Zsh directly and instead delegates shell setup to `shells/shells.sh`.
 
 ### Still expected later
 - Split current `.aliases` into shell-aware files.
 - Remove `iOSiSH.sh` dependency on repo root `.zshrc`.
-- Add post-Shelly alias opt-in prompt and installer path.
+- Add post-native shell setup alias opt-in prompt and installer path.
 - Update docs and tests to match the new architecture.
 
 ## Known bugs / risks / validation gaps
 - Step 1 was a first pass and still needs end-to-end validation against the full repo flow.
 - `iOSiSH.sh` still likely contains overlapping shell ownership until step 2 is applied.
 - Legacy repo-root `.zshrc` and `.aliases` were later moved under `legacy/` to keep them out of the active install path.
-- Tests have not yet been updated to validate the new Shelly-owned shell flow.
+- Tests have not yet been updated to validate the new native shell setup-owned shell flow.
 
 ## Handoff notes
 If work resumes after interruption, start by:
@@ -82,10 +79,10 @@ Status:
 - Work paused after step 1 by user request to add a persistent repo log.
 
 What was being worked on:
-- The checklist-driven refactor to move shell ownership fully into `shelly/shelly.sh`.
+- The checklist-driven refactor to move shell ownership fully into `shells/shells.sh`.
 
 What was completed:
-- Step 1 first pass in `shelly/shelly.sh`.
+- Step 1 first pass in `shells/shells.sh`.
 - Added this `REPO_WORKLOG.md` file for persistent handoff and crash recovery.
 
 What is next:
@@ -95,7 +92,7 @@ What is next:
 ## Update: Step 2 completed
 
 ### Scope completed
-- Added `run_shelly_setup()` to `iOSiSH.sh` so shell installation/configuration is delegated to `shelly/shelly.sh`
+- Added `run_shells_setup()` to `iOSiSH.sh` so shell installation/configuration is delegated to `shells/shells.sh`
 - Removed direct `bash`/`zsh` package installation from the main iOSiSH package list
 - Removed direct main-flow Zsh ownership in `iOSiSH.sh`:
   - no forced `set_shell_in_passwd ... zsh`
@@ -103,8 +100,8 @@ What is next:
   - no `install_shell_frameworks`
   - no `install_repo_shell_assets`
   - no `prime_zsh_for_user`
-- Added post-Shelly alias prompt flow scaffolding:
-  - `read_shelly_selection_state()`
+- Added post-native shell setup alias prompt flow scaffolding:
+  - `read_shells_selection_state()`
   - `prompt_for_alias_install()`
   - `install_aliases_for_shell()`
 - Reduced `link_root_to_shared_assets()` to SSH-only linking so it no longer mirrors shared Zsh assets into `/root`
@@ -113,10 +110,10 @@ What is next:
 ### Current known limitations after step 2
 - Obsolete helper functions still exist in `iOSiSH.sh` but are no longer called; they are intentionally deferred to later cleanup steps
 - Alias asset installation is scaffolded, but the actual shell-specific alias files are still pending step 3
-- `iOSiSH.sh` now expects Shelly to be the shell owner; behavior should be validated end-to-end after step 3 alias assets land
+- `iOSiSH.sh` now expects native shell setup to be the shell owner; behavior should be validated end-to-end after step 3 alias assets land
 
 ### Validation
-- `bash -n shelly/shelly.sh` passed before this step
+- `bash -n shells/shells.sh` passed before this step
 - `sh -n iOSiSH.sh` equivalent syntax validation via `bash -n` on the POSIX shell script content passed in this environment
 
 ### Next planned work
@@ -134,9 +131,9 @@ What is next:
 
 ### 2026-04-15 — Step 4 completed
 - Removed obsolete Zsh-only helper functions from `iOSiSH.sh` that no longer fit the delegated shell architecture.
-- Kept `run_shelly_setup()` and post-Shelly alias handling as the active path.
+- Kept `run_shells_setup()` and post-native shell setup alias handling as the active path.
 - Confirmed `link_root_to_shared_assets()` is SSH-only and no longer mirrors shared shell assets into `/root`.
-- Rewrote `README.md`, `shelly/README.md`, and `shelly/shelly-doc.md` to document the new ownership model.
+- Rewrote `README.md`, `shells/README.md`, and `shells/shells-doc.md` to document the new ownership model.
 - Updated `tests/smoke.sh` to assert that the removed legacy helper functions are gone and that delegated shell setup remains present.
 
 ### Remaining next steps
@@ -148,9 +145,9 @@ What is next:
 ### Completed
 - Cleaned the legacy repo-root `.aliases` file into a minimal compatibility/reference shim instead of leaving duplicated Zsh-specific alias blocks in place.
 - Expanded `tests/smoke.sh` to cover the remaining checklist gaps with static contract checks for:
-  - shell-selection-based package ownership in `shelly/shelly.sh`
+  - shell-selection-based package ownership in `shells/shells.sh`
   - conditional Starship install logic
-  - Shelly selection state file fields
+  - native shell setup selection state file fields
   - alias hook insertion points for Zsh, Bash, and Fish
   - shell-aware alias asset presence and legacy `.aliases` cleanup
   - iOSiSH shell-specific alias install destinations
@@ -161,7 +158,7 @@ What is next:
 
 ## 2026-04-15 - Phase 2A wire-in
 - iOSiSH.sh now applies guided installer state to runtime before execution.
-- User/root execution, Shelly execution, alias installation, and progress markers are now state-driven.
+- User/root execution, native shell setup execution, alias installation, and progress markers are now state-driven.
 - Root-only planning is normalized to run with root as the effective primary user for the current execution path.
 - Existing collect_config prompts still handle SSH hostname/port/password details until those sections are fully migrated.
 

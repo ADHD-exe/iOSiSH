@@ -4,19 +4,25 @@ Bootstrap and workflow tooling for **Alpine Linux on iSH**.
 
 ## Current architecture
 
-The repo now uses a **single state-driven installer**:
+The repo now separates responsibilities clearly:
 
-- `iOSiSH.sh` is the main entrypoint and execution orchestrator
-- `installer/*.sh` contains the planning, state, summary, prompt, and shell modules
-- optional iOSiSH aliases are offered after shell setup for the shell(s) the user actually chose
+- `shells/shells.sh` is the **only owner** of shell installation and shell configuration
+- `iOSiSH.sh` is being refactored into a **state-driven guided installer**
+- optional iOSiSH aliases are offered **after** native shell setup completes, and only for the shell(s) the user actually chose
 
 ## Ownership boundary
 
-### `iOSiSH.sh` and `installer/*.sh` own
-- guided planning and execution
+### `shells/shells.sh` owns
+- installing Bash, Zsh, Fish, or all three
+- installing prompt/framework/plugin components for the selected shell(s)
+- creating or updating user shell config files such as `.zshrc`, `.bashrc`, and Fish config
+- selecting default shell behavior for root and the primary user
+- writing a state file at `~/.config/shells/selection.env` so later steps can read the chosen shell setup
+
+### `iOSiSH.sh` owns
+- the guided planning and execution flow
 - primary-user and hostname setup
-- shell installation and shell configuration for Bash, Zsh, and Fish
-- package/bootstrap tasks
+- package/bootstrap tasks outside shell ownership
 - editor setup
 - SSH server/client configuration
 - OpenRC/service wiring
@@ -24,7 +30,7 @@ The repo now uses a **single state-driven installer**:
 
 ## Guided installer status
 
-The installer has a state-driven planning layer with:
+The installer now has a state-driven planning layer with:
 
 - resume-aware state loading
 - a plan summary
@@ -33,17 +39,16 @@ The installer has a state-driven planning layer with:
 - reset support
 - runtime execution logging
 
-Current runtime files:
+Current state files/logs:
 
-- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) — installer state generated at runtime
-- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`) — runtime execution log generated at runtime
-- `REPO_WORKLOG.md` — historical maintainer worklog for the completed shell-migration effort
-
-Generated runtime files should not be committed or shipped in release archives.
+- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) — installer state
+- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`) — runtime execution log
+- `REPO_WORKLOG.md` — repo-tracked handoff/progress log
+- `~/.config/shells/selection.env` — machine-readable shell selection state written by native shell setup
 
 ## Alias flow
 
-After shell setup completes, `iOSiSH.sh` can prompt to install optional alias assets for the configured shell(s):
+After native shell setup completes, `iOSiSH.sh` can prompt to install optional alias assets for the configured shell(s):
 
 - Zsh: `~/.config/iosish/aliases.zsh`
 - Bash: `~/.config/iosish/aliases.bash`
@@ -85,10 +90,10 @@ bash tests/smoke.sh
 - builds or resumes installer state
 - shows a review summary with edit/save-quit options
 - applies the selected plan
-- configures user/system/editor/shell/SSH/service pieces
+- configures user/system/editor/SSH/service pieces
 
-### `installer/shells.sh`
-- state-driven shell installer
+### `shells/shells.sh`
+- interactive or unattended shell installer
 - supports `bash`, `zsh`, `fish`, or `all`
 - writes shell config files directly
 - installs only the shell packages selected by the user/config
@@ -129,9 +134,16 @@ sh ./iOSiSH.sh
 sh ./iOSiSH.sh --dry-run
 ```
 
+### Run native shell setup directly
+
+```bash
+bash ./shells/shells.sh --primary-user <username-here>
+```
+
+
 ## Runtime validation assets
 
-The repo includes manual runtime-validation assets for testing inside real iSH:
+The repo now includes manual runtime-validation assets for testing inside real iSH:
 
 - `VALIDATION_CHECKLIST.md` — scenario-based pass/fail checklist
 - `BUG_REPORT_TEMPLATE.md` — structured bug report template
@@ -150,15 +162,17 @@ Then work through `VALIDATION_CHECKLIST.md` and record any failures with `BUG_RE
 Current smoke coverage checks:
 
 - `sh -n iOSiSH.sh`
+- `bash -n shells/shells.sh`
 - installer module syntax
 - dry-run smoke execution
 
 ## Notes
 
-- Shell ownership now lives inside the state-driven installer.
+- Shell ownership intentionally lives in native shell setup.
 - Root no longer reuses shared Zsh assets through shell symlinks.
 - Optional aliases are shell-aware and opt-in.
-- The package catalog and editor subsystem are state-driven.
+- The package catalog and editor subsystem are now state-driven.
+
 
 ## Recent guided-installer package improvements
 
@@ -166,14 +180,16 @@ Current smoke coverage checks:
 - category-based plans can be edited before proceeding
 - package-specific plans can be switched in-place from the planner
 - exclusions are supported for recommended/category/package modes
-- SSHD now supports recommended, relaxed, and custom planning modes with port validation and explicit boot/start service selection
+
+- SSHD now supports recommended, relaxed, and custom planning modes with port validation and explicit boot/start service selection.
+
 
 ## Recent guided-installer polish
 
 - Package selection now supports a richer review loop before execution.
 - SSHD/service planning now supports stronger validation and profile-driven choices.
 - Editor setup now supports editor profiles (`minimal`, `recommended`, `coding`) for Vim, Neovim, and Nano, plus optional lightweight plugin scaffolding for Vim/Neovim.
-- Shell setup now runs through the same prompt/state/summary system as the rest of the installer.
+
 
 ## Guided installer flow
 
@@ -206,7 +222,7 @@ Make sure you are running `iOSiSH.sh` from the repository root and that the `ins
 Use the guided installer's `reset` option, or remove `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) manually. If you are packaging the repo for someone else, also make sure the state file and runtime log are absent from the archive.
 
 ### Shell setup does not match expectations
-Review the shell choices in the guided-installer summary and inspect `$INSTALLER_RUNTIME_LOG` for shell-step messages.
+Check `~/.config/shells/selection.env` to confirm what native shell setup actually selected and wrote.
 
 ### Wrappers are installed but not found
 Make sure `~/.local/bin` is in your `PATH`, or run the wrapper with its full path.

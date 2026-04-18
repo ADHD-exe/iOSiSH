@@ -14,7 +14,7 @@ for path in \
     ./installer/prompts.sh \
     ./installer/summary.sh \
     ./installer/plan.sh \
-    ./installer/shells.sh \
+    ./shells/shells.sh \
     ./VALIDATION_CHECKLIST.md \
     ./BUG_REPORT_TEMPLATE.md
  do
@@ -29,8 +29,10 @@ if command -v sh >/dev/null 2>&1; then
     sh -n ./iOSiSH.sh && say 'OK   sh -n iOSiSH.sh' || warn 'syntax check failed: iOSiSH.sh'
 fi
 
-if command -v sh >/dev/null 2>&1; then
-    sh -n ./installer/shells.sh && say 'OK   sh -n installer/shells.sh' || warn 'syntax check failed: installer/shells.sh'
+if command -v bash >/dev/null 2>&1; then
+    bash -n ./shells/shells.sh && say 'OK   bash -n shells/shells.sh' || warn 'syntax check failed: shells/shells.sh'
+else
+    warn 'bash not present; native shell setup syntax check skipped'
 fi
 
 if command -v apk >/dev/null 2>&1; then

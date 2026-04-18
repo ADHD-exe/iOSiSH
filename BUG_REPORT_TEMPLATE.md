@@ -24,7 +24,7 @@
 ## Logs
 - Relevant `.iosish-install.log` lines:
 - Relevant terminal output:
-- Relevant shell-related `.iosish-state.env` values if applicable:
+- Relevant `~/.config/shells/selection.env` content if applicable:
 - Relevant `.iosish-state.env` content if applicable:
 
 ## Files affected

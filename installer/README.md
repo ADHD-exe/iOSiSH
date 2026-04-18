@@ -42,7 +42,7 @@ The guided-installer layer now tracks and/or plans:
 
 - installer preferences
 - user/root setup
-- shell setup inside the installer
+- shell setup handoff to native shell setup
 - package profile/category/package selection
 - editor setup
 - SSH / SSHD basics
@@ -79,7 +79,7 @@ Execution is now state-driven, with orchestration still centralized in `iOSiSH.s
 ## Runtime validation
 
 The guided installer now ships with manual runtime-validation assets in the repo root and `tests/runtime/`.
-Use them when validating the installer inside real iSH sessions, especially after changes to resume logic, package planning, sshd/service behavior, or shell setup.
+Use them when validating the installer inside real iSH sessions, especially after changes to resume logic, package planning, sshd/service behavior, or shell handoff.
 
 
 ## Package planning UX

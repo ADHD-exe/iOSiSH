@@ -660,6 +660,7 @@ script_dir() {
 }
 
 
+
 copy_alias_asset_if_present() {
     src="$1"
     dst="$2"
@@ -1332,21 +1333,25 @@ run_shell_setup_from_state() {
     log_install_event INFO "Starting shells step"
     state_mark_step_started shells || return 1
     if [ "${RUN_SHELL_SETUP:-yes}" = "yes" ]; then
-        info "Running native shell installation and configuration"
-        run_shell_setup_from_state || { log_install_event ERROR "shells step failed while configuring native shell state"; state_mark_failed shells; return 1; }
+        native_run_shell_setup_from_state || { log_install_event ERROR "shells step failed during native shell setup"; state_mark_failed shells; return 1; }
     else
         info "Guided plan skipped shell configuration"
+        state_mark_step_done shells || return 1
+        log_install_event INFO "Completed shells step"
     fi
-    state_mark_step_done shells || return 1
-    log_install_event INFO "Completed shells step"
 }
 
 run_alias_setup_from_state() {
     if [ "${INSTALL_ALIASES:-no}" = "yes" ]; then
+        CONFIGURED_SHELLS="${CONFIGURED_SHELLS:-$(state_get CONFIGURED_SHELLS 2>/dev/null || true)}"
+        [ -n "$CONFIGURED_SHELLS" ] || {
+            warn "No configured shells recorded; skipping optional alias integration"
+            return 0
+        }
         for shell_name in zsh bash fish; do
             case " $CONFIGURED_SHELLS " in
-                *" $shell_name "*)
-                    [ "${ROOT_ONLY:-no}" = "yes" ] || install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
+                *" $shell_name "*|*"$shell_name"*)
+                    install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
                     ;;
             esac
         done
@@ -1416,11 +1421,13 @@ install_completions_from_state() {
         info "Guided plan skipped shell completions"
         return 0
     }
+    CONFIGURED_SHELLS="${CONFIGURED_SHELLS:-$(state_get CONFIGURED_SHELLS 2>/dev/null || true)}"
+    [ -n "$CONFIGURED_SHELLS" ] || return 0
     case " $CONFIGURED_SHELLS " in
-        *" zsh "*) pkg_install_alias "zsh-completions" zsh-completions ;;
+        *" zsh "*|*"zsh"*) pkg_install_alias "zsh-completions" zsh-completions ;;
     esac
     case " $CONFIGURED_SHELLS " in
-        *" bash "*) pkg_install_alias "bash-completion" bash-completion ;;
+        *" bash "*|*"bash"*) pkg_install_alias "bash-completion" bash-completion ;;
     esac
 }
 
@@ -1453,7 +1460,7 @@ install_docs_wrapper_from_state() {
 
 install_completion_wrapper_from_state() {
     [ "${INSTALL_COMPLETION_WRAPPER:-no}" = "yes" ] || return 0
-    install_wrapper_script "$PRIMARY_HOME" "$PRIMARY_USER" "iosish-completions" 'echo "Installed completion packages depend on the shells chosen in the shell planner. Re-run iOSiSH to reconcile completions."' || return 1
+    install_wrapper_script "$PRIMARY_HOME" "$PRIMARY_USER" "iosish-completions" 'echo "Installed completion packages depend on the shells selected in the iOSiSH plan. Re-run iOSiSH to reconcile completions."' || return 1
 }
 
 run_extras_setup_from_state() {
