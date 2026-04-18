@@ -44,6 +44,14 @@ preview="$(build_package_preview_from_state)"
 
 # Summary output should include key fields
 state_set PRIMARY_USER rabbit
+state_set RUN_SHELL_SETUP yes
+state_set INSTALL_SHELLS all
+state_set ROOT_DEFAULT_SHELL zsh
+state_set USER_DEFAULT_SHELL zsh
+state_set ZSH_PROMPT_CHOICE omz
+state_set BASH_PROMPT_CHOICE framework
+state_set FISH_PROMPT_CHOICE tide
+state_set FETCH_CHOICE fastfetch
 state_set PACKAGE_MODE recommended
 state_set PACKAGE_PROFILE recommended
 state_set SELECTED_PACKAGE_CATEGORIES 'core,ssh'
@@ -58,6 +66,8 @@ state_set INSTALL_MANPAGES yes
 state_load
 summary_output="$(show_plan_summary)"
 printf '%s\n' "$summary_output" | grep -q 'Primary user:.*rabbit'
+printf '%s\n' "$summary_output" | grep -q 'Run shell setup:.*yes'
+printf '%s\n' "$summary_output" | grep -q 'Install shells:.*all'
 printf '%s\n' "$summary_output" | grep -q 'Package profile:.*recommended'
 printf '%s\n' "$summary_output" | grep -q 'Editor choice:.*vim'
 printf '%s\n' "$summary_output" | grep -q 'Install SSHD:.*yes'

@@ -42,7 +42,7 @@ The guided-installer layer now tracks and/or plans:
 
 - installer preferences
 - user/root setup
-- shell setup handoff to Shelly
+- shell setup inside the installer
 - package profile/category/package selection
 - editor setup
 - SSH / SSHD basics
@@ -73,13 +73,13 @@ The summary step now supports:
 
 The SSH/SSHD planning flow now stores an explicit `SSHD_PROFILE` and supports separate service enable/start selections for supported services such as `sshd`.
 
-The repo is still in a hybrid state: a large part of execution is now state-driven, but some legacy execution logic remains in `iOSiSH.sh` and should continue being migrated toward smaller step functions.
+Execution is now state-driven, with orchestration still centralized in `iOSiSH.sh` and helper logic split across the installer modules below.
 
 
 ## Runtime validation
 
 The guided installer now ships with manual runtime-validation assets in the repo root and `tests/runtime/`.
-Use them when validating the installer inside real iSH sessions, especially after changes to resume logic, package planning, sshd/service behavior, or shell handoff.
+Use them when validating the installer inside real iSH sessions, especially after changes to resume logic, package planning, sshd/service behavior, or shell setup.
 
 
 ## Package planning UX
@@ -130,11 +130,12 @@ The guided installer is being normalized around these section modes where possib
 - `recommended`
 - `customize`
 
-Sections may still have a few legacy prompts, but new or polished sections should follow that pattern so the setup flow stays predictable.
+Prompt rendering should follow one rule consistently: visible UI text goes to stderr, while the selected machine-readable value goes to stdout.
 
 ## Resume and logging notes
 
-- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) stores the current installer plan and step progress.
-- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`) records runtime execution events.
+- `$INSTALLER_STATE_FILE` (default `./.iosish-state.env`) stores the current installer plan and step progress during a run.
+- `$INSTALLER_RUNTIME_LOG` (default `./.iosish-install.log`) records runtime execution events during a run.
+- Neither file should be committed or included in release archives.
 - `save-quit` keeps the current plan so it can be resumed later.
 - `reset` clears the guided plan so a new one can be created from scratch.

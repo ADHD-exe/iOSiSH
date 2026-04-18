@@ -318,12 +318,140 @@ plan_user_setup() {
     state_set CONFIGURE_ROOT "yes"
 }
 
+prompt_shell_plan_action() {
+    printf '
+Shell plan actions:
+' >&2
+    printf '  - proceed
+' >&2
+    printf '  - edit-shells
+' >&2
+    printf '  - edit-defaults
+' >&2
+    printf '  - edit-prompts
+' >&2
+    printf '  - edit-fetch
+' >&2
+    while :; do
+        printf 'Choice [proceed]: ' >&2
+        if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+            reply="proceed"
+        else
+            read -r reply || return 1
+            [ -n "$reply" ] || reply="proceed"
+        fi
+        case "$reply" in
+            proceed|edit-shells|edit-defaults|edit-prompts|edit-fetch)
+                printf '%s
+' "$reply"
+                return 0
+                ;;
+        esac
+        printf 'Invalid choice.
+' >&2
+    done
+}
+
+show_shell_plan_review() {
+    printf '
+== Shell Plan Review ==
+'
+    printf 'Run shell setup:       %s
+' "${RUN_SHELL_SETUP:-}"
+    printf 'Install shells:        %s
+' "${INSTALL_SHELLS:-}"
+    printf 'User default shell:    %s
+' "${USER_DEFAULT_SHELL:-}"
+    printf 'Root default shell:    %s
+' "${ROOT_DEFAULT_SHELL:-}"
+    printf 'Zsh prompt:            %s
+' "${ZSH_PROMPT_CHOICE:-}"
+    printf 'Bash prompt:           %s
+' "${BASH_PROMPT_CHOICE:-}"
+    printf 'Fish prompt:           %s
+' "${FISH_PROMPT_CHOICE:-}"
+    printf 'Fetch tool:            %s
+' "${FETCH_CHOICE:-}"
+}
+
+configure_shell_defaults_from_choice() {
+    shell_choice=$1
+    state_set INSTALL_SHELLS "$shell_choice"
+    case "$shell_choice" in
+        zsh)
+            state_set ROOT_DEFAULT_SHELL "zsh"
+            state_set USER_DEFAULT_SHELL "zsh"
+            ;;
+        bash)
+            state_set ROOT_DEFAULT_SHELL "bash"
+            state_set USER_DEFAULT_SHELL "bash"
+            ;;
+        fish)
+            state_set ROOT_DEFAULT_SHELL "fish"
+            state_set USER_DEFAULT_SHELL "fish"
+            ;;
+        all)
+            state_set ROOT_DEFAULT_SHELL "zsh"
+            state_set USER_DEFAULT_SHELL "zsh"
+            ;;
+    esac
+}
+
 plan_shell_setup() {
     print_section_header "Shell Setup"
-    print_help_text "Shelly handles shell installation and configuration. You can skip it and keep the current shell state if needed."
+    print_help_text "Configure shells directly in the state-driven installer. Choose which shells to install, which one becomes default for root and the primary user, and which prompt style to enable for each shell."
 
-    run_shelly=$(prompt_yes_no "Run Shelly for shell configuration?" "yes") || return 1
-    state_set RUN_SHELLY "$run_shelly"
+    run_shell_setup=$(prompt_yes_no "Run shell setup?" "yes") || return 1
+    state_set RUN_SHELL_SETUP "$run_shell_setup"
+    [ "$run_shell_setup" = "yes" ] || return 0
+
+    shell_choice=$(prompt_choice "Which shell set should be installed?" "${INSTALL_SHELLS:-all}" "zsh" "bash" "fish" "all") || return 1
+    configure_shell_defaults_from_choice "$shell_choice"
+
+    root_default=$(prompt_choice "Choose root default shell:" "${ROOT_DEFAULT_SHELL:-zsh}" "zsh" "bash" "fish") || return 1
+    user_default=$(prompt_choice "Choose primary-user default shell:" "${USER_DEFAULT_SHELL:-zsh}" "zsh" "bash" "fish") || return 1
+    zsh_prompt=$(prompt_choice "Choose the Zsh prompt style:" "${ZSH_PROMPT_CHOICE:-omz}" "omz" "starship" "powerlevel10k") || return 1
+    bash_prompt=$(prompt_choice "Choose the Bash prompt style:" "${BASH_PROMPT_CHOICE:-framework}" "framework" "starship") || return 1
+    fish_prompt=$(prompt_choice "Choose the Fish prompt style:" "${FISH_PROMPT_CHOICE:-tide}" "tide" "starship") || return 1
+    fetch_choice=$(prompt_choice "Install a system info banner tool?" "${FETCH_CHOICE:-fastfetch}" "fastfetch" "neofetch" "neither") || return 1
+
+    state_set ROOT_DEFAULT_SHELL "$root_default"
+    state_set USER_DEFAULT_SHELL "$user_default"
+    state_set ZSH_PROMPT_CHOICE "$zsh_prompt"
+    state_set BASH_PROMPT_CHOICE "$bash_prompt"
+    state_set FISH_PROMPT_CHOICE "$fish_prompt"
+    state_set FETCH_CHOICE "$fetch_choice"
+
+    while :; do
+        state_load || return 1
+        show_shell_plan_review
+        action=$(prompt_shell_plan_action) || return 1
+        case "$action" in
+            proceed) return 0 ;;
+            edit-shells)
+                shell_choice=$(prompt_choice "Which shell set should be installed?" "${INSTALL_SHELLS:-all}" "zsh" "bash" "fish" "all") || return 1
+                configure_shell_defaults_from_choice "$shell_choice"
+                ;;
+            edit-defaults)
+                root_default=$(prompt_choice "Choose root default shell:" "${ROOT_DEFAULT_SHELL:-zsh}" "zsh" "bash" "fish") || return 1
+                user_default=$(prompt_choice "Choose primary-user default shell:" "${USER_DEFAULT_SHELL:-zsh}" "zsh" "bash" "fish") || return 1
+                state_set ROOT_DEFAULT_SHELL "$root_default"
+                state_set USER_DEFAULT_SHELL "$user_default"
+                ;;
+            edit-prompts)
+                zsh_prompt=$(prompt_choice "Choose the Zsh prompt style:" "${ZSH_PROMPT_CHOICE:-omz}" "omz" "starship" "powerlevel10k") || return 1
+                bash_prompt=$(prompt_choice "Choose the Bash prompt style:" "${BASH_PROMPT_CHOICE:-framework}" "framework" "starship") || return 1
+                fish_prompt=$(prompt_choice "Choose the Fish prompt style:" "${FISH_PROMPT_CHOICE:-tide}" "tide" "starship") || return 1
+                state_set ZSH_PROMPT_CHOICE "$zsh_prompt"
+                state_set BASH_PROMPT_CHOICE "$bash_prompt"
+                state_set FISH_PROMPT_CHOICE "$fish_prompt"
+                ;;
+            edit-fetch)
+                fetch_choice=$(prompt_choice "Install a system info banner tool?" "${FETCH_CHOICE:-fastfetch}" "fastfetch" "neofetch" "neither") || return 1
+                state_set FETCH_CHOICE "$fetch_choice"
+                ;;
+        esac
+    done
 }
 
 configure_package_mode_state() {

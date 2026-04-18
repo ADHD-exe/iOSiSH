@@ -1,6 +1,13 @@
 # iOSiSH Repository Worklog
 
+> Historical maintainer log. This file documents the Shelly-to-native-shell-installer migration that has already been completed. It is preserved for project history and handoff context, not as the current architecture source of truth. For current behavior, use `README.md`, `installer/README.md`, and the installer modules under `installer/`.
+
 Purpose: persistent handoff log for maintainers, contributors, or future agents. Update this file whenever meaningful work is started, completed, blocked, or reprioritized so recovery after interruption is fast and accurate.
+
+## Current status
+- Shelly has been removed from the active installer path and from the repository.
+- Shell installation and configuration are now handled by `iOSiSH.sh` + `installer/shells.sh`.
+- Older entries below are retained as historical migration notes.
 
 ## How to use this log
 - Add a new dated entry at the top of the Activity Log.
@@ -9,22 +16,18 @@ Purpose: persistent handoff log for maintainers, contributors, or future agents.
 - Update the checklist status when a numbered phase is completed.
 - Prefer file/function names over vague descriptions.
 
-## Current objective
-Refactor the repository so `shelly/shelly.sh` is the sole owner of shell installation and shell configuration, while `iOSiSH.sh` delegates shell setup to Shelly and only resumes afterward for optional alias integration and other iSH-specific setup.
+## Historical migration objective
+This section is retained for historical context from the Shelly migration effort and is no longer the active project objective.
 
-## Active checklist status
-- [x] 1. `shelly/shelly.sh` — make Shelly the only shell owner (first pass complete)
-- [ ] 2. `iOSiSH.sh` — remove shell ownership and delegate to Shelly
-- [x] 3. `.aliases` — split into shell-aware files
-- [x] 4. `.zshrc` — stop using as canonical repo-managed config
-- [ ] 5. New alias install path in `iOSiSH.sh`
-- [ ] 6. Documentation updates
-- [ ] 7. Test updates
+## Final migration outcome
+- [x] Shell ownership moved into the state-driven installer.
+- [x] Shelly runtime handoff removed.
+- [x] Shell-aware alias assets retained.
+- [x] Legacy repo-root shell references moved under `legacy/`.
+- [x] Documentation and tests updated to the native shell flow.
 
-## Last known good state
-- Archive after step 1 existed as `iOSiSH_step1_shelly_fixed.tar.gz`.
-- `bash -n shelly/shelly.sh` passed after the step 1 edits.
-- Step 2 had **not** started when this log entry was created.
+## Historical last known state
+- The notes below capture the intermediate migration checkpoints that existed before the native shell module replaced Shelly.
 
 ## Known completed work
 ### Step 1 completed (first pass)

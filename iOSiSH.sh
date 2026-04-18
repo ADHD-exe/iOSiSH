@@ -77,6 +77,11 @@ load_guided_installer_modules() {
 ' "$INSTALLER_DIR" >&2
         return 1
     }
+    [ -r "$INSTALLER_DIR/shells.sh" ] || {
+        printf 'Missing installer module: %s/shells.sh
+' "$INSTALLER_DIR" >&2
+        return 1
+    }
 
     # shellcheck disable=SC1091
     . "$INSTALLER_DIR/state.sh" || return 1
@@ -86,6 +91,8 @@ load_guided_installer_modules() {
     . "$INSTALLER_DIR/summary.sh" || return 1
     # shellcheck disable=SC1091
     . "$INSTALLER_DIR/plan.sh" || return 1
+    # shellcheck disable=SC1091
+    . "$INSTALLER_DIR/shells.sh" || return 1
 }
 
 INSTALLER_RUNTIME_LOG="${INSTALLER_RUNTIME_LOG:-$SCRIPT_DIR/.iosish-install.log}"
@@ -182,7 +189,15 @@ apply_guided_state_to_runtime() {
         CONFIGURE_ROOT="$(state_get CONFIGURE_ROOT 2>/dev/null || true)"
     fi
 
-    RUN_SHELLY="$(state_get RUN_SHELLY 2>/dev/null || true)"
+    RUN_SHELL_SETUP="$(state_get RUN_SHELL_SETUP 2>/dev/null || true)"
+    INSTALL_SHELLS="$(state_get INSTALL_SHELLS 2>/dev/null || true)"
+    USER_DEFAULT_SHELL="$(state_get USER_DEFAULT_SHELL 2>/dev/null || true)"
+    ROOT_DEFAULT_SHELL="$(state_get ROOT_DEFAULT_SHELL 2>/dev/null || true)"
+    ZSH_PROMPT_CHOICE="$(state_get ZSH_PROMPT_CHOICE 2>/dev/null || true)"
+    BASH_PROMPT_CHOICE="$(state_get BASH_PROMPT_CHOICE 2>/dev/null || true)"
+    FISH_PROMPT_CHOICE="$(state_get FISH_PROMPT_CHOICE 2>/dev/null || true)"
+    FETCH_CHOICE="$(state_get FETCH_CHOICE 2>/dev/null || true)"
+    CONFIGURED_SHELLS="$(state_get CONFIGURED_SHELLS 2>/dev/null || true)"
     PACKAGE_MODE="$(state_get PACKAGE_MODE 2>/dev/null || true)"
     PACKAGE_PROFILE="$(state_get PACKAGE_PROFILE 2>/dev/null || true)"
     SELECTED_PACKAGE_CATEGORIES="$(state_get SELECTED_PACKAGE_CATEGORIES 2>/dev/null || true)"
@@ -644,52 +659,6 @@ script_dir() {
     esac
 }
 
-run_shelly_setup() {
-    src_dir="$(script_dir)"
-    shelly_script="$src_dir/shelly/shelly.sh"
-    [ -f "$shelly_script" ] || { err "Missing Shelly installer at $shelly_script"; exit 1; }
-    if ! cmd_exists bash; then
-        if [ "$DRY_RUN" = "1" ]; then
-            info "[dry-run] apk add --no-cache bash"
-        else
-            info "bash not found; installing bash before running Shelly"
-            apk add --no-cache bash >/dev/null 2>&1 || { err "failed to install bash for Shelly"; exit 1; }
-        fi
-    fi
-
-    info "Delegating shell installation and configuration to Shelly"
-    if [ "$DRY_RUN" = "1" ]; then
-        info "[dry-run] bash $shelly_script --primary-user $PRIMARY_USER"
-        return 0
-    fi
-
-    if [ "$NONINTERACTIVE" = "1" ]; then
-        PRIMARY_HOME="$PRIMARY_HOME" NONINTERACTIVE="$NONINTERACTIVE" bash "$shelly_script" --primary-user "$PRIMARY_USER" --noninteractive --auto-install
-    else
-        PRIMARY_HOME="$PRIMARY_HOME" NONINTERACTIVE="$NONINTERACTIVE" bash "$shelly_script" --primary-user "$PRIMARY_USER"
-    fi
-    status=$?
-    [ "$status" -eq 0 ] || { err "Shelly failed with exit code $status"; exit 1; }
-    if ! sync_shelly_state_into_installer_state; then
-        err "Shelly completed but selection state could not be read"
-        exit 1
-    fi
-    case ",${CONFIGURED_SHELLS:-}," in
-        *,${USER_DEFAULT_SHELL:-},*|*,${ROOT_DEFAULT_SHELL:-},*) : ;;
-        *) [ -n "${USER_DEFAULT_SHELL:-}${ROOT_DEFAULT_SHELL:-}" ] && { err "Shelly did not confirm configured default shells"; exit 1; } ;;
-    esac
-    ok "Shelly finished shell setup"
-}
-
-read_shelly_selection_state() {
-    state_file="$PRIMARY_HOME/.config/shelly/selection.env"
-    [ -f "$state_file" ] || return 1
-    INSTALL_SHELLS_SELECTED="$(awk -F= '/^INSTALL_SHELLS=/{sub(/^INSTALL_SHELLS=/,""); print; exit}' "$state_file")"
-    ROOT_DEFAULT_SHELL="$(awk -F= '/^ROOT_DEFAULT=/{sub(/^ROOT_DEFAULT=/,""); print; exit}' "$state_file")"
-    USER_DEFAULT_SHELL="$(awk -F= '/^USER_DEFAULT=/{sub(/^USER_DEFAULT=/,""); print; exit}' "$state_file")"
-    CONFIGURED_SHELLS="$(awk -F= '/^CONFIGURED_SHELLS=/{sub(/^CONFIGURED_SHELLS=/,""); print; exit}' "$state_file")"
-    return 0
-}
 
 copy_alias_asset_if_present() {
     src="$1"
@@ -1038,13 +1007,6 @@ fix_permissions() {
     ok "Fixed permissions"
 }
 
-sync_shelly_state_into_installer_state() {
-    read_shelly_selection_state || return 1
-    state_set INSTALL_SHELLS "$INSTALL_SHELLS_SELECTED"
-    state_set USER_DEFAULT_SHELL "$USER_DEFAULT_SHELL"
-    state_set ROOT_DEFAULT_SHELL "$ROOT_DEFAULT_SHELL"
-    state_set CONFIGURED_SHELLS "$CONFIGURED_SHELLS"
-}
 
 ensure_profile_d_environment() {
     target_home="$1"
@@ -1369,11 +1331,11 @@ run_shell_setup_from_state() {
     fi
     log_install_event INFO "Starting shells step"
     state_mark_step_started shells || return 1
-    if [ "${RUN_SHELLY:-yes}" = "yes" ]; then
-        run_shelly_setup || { log_install_event ERROR "shells step failed while running Shelly"; state_mark_failed shells; return 1; }
-        sync_shelly_state_into_installer_state || warn "Could not import Shelly state into installer state"
+    if [ "${RUN_SHELL_SETUP:-yes}" = "yes" ]; then
+        info "Running native shell installation and configuration"
+        run_shell_setup_from_state || { log_install_event ERROR "shells step failed while configuring native shell state"; state_mark_failed shells; return 1; }
     else
-        info "Guided plan skipped Shelly shell configuration"
+        info "Guided plan skipped shell configuration"
     fi
     state_mark_step_done shells || return 1
     log_install_event INFO "Completed shells step"
@@ -1381,14 +1343,10 @@ run_shell_setup_from_state() {
 
 run_alias_setup_from_state() {
     if [ "${INSTALL_ALIASES:-no}" = "yes" ]; then
-        read_shelly_selection_state || {
-            warn "Shelly state file missing; skipping optional alias integration"
-            return 0
-        }
         for shell_name in zsh bash fish; do
             case " $CONFIGURED_SHELLS " in
-                *" $shell_name "*|*"$shell_name"*)
-                    install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
+                *" $shell_name "*)
+                    [ "${ROOT_ONLY:-no}" = "yes" ] || install_aliases_for_shell "$shell_name" "$PRIMARY_HOME" "$PRIMARY_USER" || true
                     ;;
             esac
         done
@@ -1458,12 +1416,11 @@ install_completions_from_state() {
         info "Guided plan skipped shell completions"
         return 0
     }
-    read_shelly_selection_state || return 0
     case " $CONFIGURED_SHELLS " in
-        *" zsh "*|*"zsh"*) pkg_install_alias "zsh-completions" zsh-completions ;;
+        *" zsh "*) pkg_install_alias "zsh-completions" zsh-completions ;;
     esac
     case " $CONFIGURED_SHELLS " in
-        *" bash "*|*"bash"*) pkg_install_alias "bash-completion" bash-completion ;;
+        *" bash "*) pkg_install_alias "bash-completion" bash-completion ;;
     esac
 }
 
@@ -1496,7 +1453,7 @@ install_docs_wrapper_from_state() {
 
 install_completion_wrapper_from_state() {
     [ "${INSTALL_COMPLETION_WRAPPER:-no}" = "yes" ] || return 0
-    install_wrapper_script "$PRIMARY_HOME" "$PRIMARY_USER" "iosish-completions" 'echo "Installed completion packages depend on the shells chosen in Shelly. Re-run iOSiSH to reconcile completions."' || return 1
+    install_wrapper_script "$PRIMARY_HOME" "$PRIMARY_USER" "iosish-completions" 'echo "Installed completion packages depend on the shells chosen in the shell planner. Re-run iOSiSH to reconcile completions."' || return 1
 }
 
 run_extras_setup_from_state() {

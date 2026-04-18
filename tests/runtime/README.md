@@ -6,7 +6,7 @@ These files do not replace automated tests. They exist because some critical beh
 
 - package installation
 - user creation
-- shell handoff to `shelly/shelly.sh`
+- native shell setup inside `iOSiSH.sh` / `installer/shells.sh`
 - ssh/sshd behavior
 - OpenRC startup behavior
 - resume and logging behavior

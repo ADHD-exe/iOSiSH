@@ -19,7 +19,6 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 - [ ] `sh -n installer/prompts.sh` passes
 - [ ] `sh -n installer/summary.sh` passes
 - [ ] `sh -n installer/plan.sh` passes
-- [ ] `bash -n shelly/shelly.sh` passes
 
 ### 1.2 File presence
 - [ ] `installer/` directory exists
@@ -71,29 +70,28 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 - [ ] shell setup applies to the selected user
 - [ ] user-level files land in the correct home directory
 
-## 5. Shelly integration
+## 5. Shell integration
 ### 5.1 Zsh-only
-- [ ] Shelly runs when selected
+- [ ] shell setup runs when selected
 - [ ] only Zsh-related packages are installed
-- [ ] `.zshrc` is created by Shelly
+- [ ] `.zshrc` is created when Zsh is selected
 - [ ] alias hook exists in `.zshrc`
 - [ ] completion behavior is correct for Zsh
-- [ ] `selection.env` is written
-- [ ] installer imports Shelly state correctly
+- [ ] installer state reflects Zsh correctly
 
 ### 5.2 Bash-only
 - [ ] only Bash-related packages are installed
 - [ ] `.bashrc` is created/updated
 - [ ] alias hook exists in `.bashrc`
 - [ ] Bash completion behavior is correct
-- [ ] state import works
+- [ ] installer state reflects Bash correctly
 
 ### 5.3 Fish-only
 - [ ] only Fish-related packages are installed
 - [ ] Fish config is created/updated
 - [ ] Fish alias hook exists
 - [ ] Fish config syntax remains valid
-- [ ] state import works
+- [ ] installer state reflects Fish correctly
 
 ### 5.4 All shells
 - [ ] all selected shell packages install correctly
@@ -266,11 +264,12 @@ Use this checklist while testing **inside real iSH on iPhone/iPad**. The goal is
 - [ ] README matches current guided installer behavior
 - [ ] README describes state-driven flow
 - [ ] README mentions resume/logging behavior
-- [ ] README explains Shelly ownership clearly
+- [ ] README explains installer-owned shell flow clearly
 
 ### 15.2 Installer docs
 - [ ] `installer/README.md` matches actual module behavior
 - [ ] `.iosish-state.env.example` matches current keys, defaults, and documented optional flags
+- [ ] release zip / shared archive excludes runtime-generated state and log files
 - [ ] wrapper docs are accurate if present
 
 ## 16. Final pass/fail summary
