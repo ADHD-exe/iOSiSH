@@ -72,7 +72,7 @@ prompt_summary_action() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             reply="proceed"
         else
-            read -r reply || return 1
+            reply=$(read_prompt_line) || return 1
             [ -n "$reply" ] || reply="proceed"
         fi
         case "$reply" in
@@ -102,7 +102,7 @@ prompt_edit_section() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             reply="packages"
         else
-            read -r reply || return 1
+            reply=$(read_prompt_line) || return 1
             [ -n "$reply" ] || reply="packages"
         fi
         case "$reply" in
@@ -137,7 +137,7 @@ prompt_resume_action() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             reply="resume"
         else
-            read -r reply || return 1
+            reply=$(read_prompt_line) || return 1
             [ -n "$reply" ] || reply="resume"
         fi
         case "$reply" in
@@ -166,7 +166,7 @@ prompt_rerun_section() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             reply="packages"
         else
-            read -r reply || return 1
+            reply=$(read_prompt_line) || return 1
             [ -n "$reply" ] || reply="packages"
         fi
         case "$reply" in

@@ -101,7 +101,7 @@ prompt_package_categories() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             categories=${SELECTED_PACKAGE_CATEGORIES:-core,network,ssh,editors}
         else
-            read -r categories || return 1
+            categories=$(read_prompt_line) || return 1
             [ -n "$categories" ] || categories='core,network,ssh,editors'
         fi
 
@@ -126,7 +126,7 @@ prompt_package_list() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             packages=${SELECTED_PACKAGES:-}
         else
-            read -r packages || return 1
+            packages=$(read_prompt_line) || return 1
         fi
         [ -n "$packages" ] || {
             printf 'Please enter at least one package, or choose another package mode.
@@ -156,7 +156,7 @@ prompt_package_exclusions() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             excluded=${EXCLUDED_PACKAGES:-}
         else
-            read -r excluded || return 1
+            excluded=$(read_prompt_line) || return 1
         fi
         [ -n "$excluded" ] || {
             printf '
@@ -264,7 +264,7 @@ Package plan actions:
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             reply="proceed"
         else
-            read -r reply || return 1
+            reply=$(read_prompt_line) || return 1
             [ -n "$reply" ] || reply="proceed"
         fi
         case "$reply" in
@@ -309,7 +309,7 @@ plan_user_setup() {
     if [ "${NONINTERACTIVE:-0}" = "1" ]; then
         primary_user=${PRIMARY_USER:-rabbit}
     else
-        read -r primary_user || return 1
+        primary_user=$(read_prompt_line) || return 1
         [ -n "$primary_user" ] || primary_user="${PRIMARY_USER:-rabbit}"
     fi
 
@@ -521,7 +521,7 @@ Editor plan actions:
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             reply="proceed"
         else
-            read -r reply || return 1
+            reply=$(read_prompt_line) || return 1
             [ -n "$reply" ] || reply="proceed"
         fi
         case "$reply" in
@@ -654,7 +654,7 @@ prompt_sshd_port() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             sshd_port=$default_port
         else
-            read -r sshd_port || return 1
+            sshd_port=$(read_prompt_line) || return 1
             [ -n "$sshd_port" ] || sshd_port="$default_port"
         fi
         if is_valid_port "$sshd_port"; then
@@ -706,7 +706,7 @@ prompt_service_targets() {
         if [ "${NONINTERACTIVE:-0}" = "1" ]; then
             services=$default_services
         else
-            read -r services || return 1
+            services=$(read_prompt_line) || return 1
             [ -n "$services" ] || services="$default_services"
         fi
         normalized=$(normalize_service_list "$services") || return 1

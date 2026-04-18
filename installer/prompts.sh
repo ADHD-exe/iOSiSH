@@ -16,6 +16,34 @@ print_help_text() {
 ' "$help_text" >&2
 }
 
+read_prompt_line() {
+  if [ "${NONINTERACTIVE:-0}" = "1" ]; then
+    printf '
+'
+    return 0
+  fi
+
+  if [ -r /dev/tty ]; then
+    IFS= read -r reply < /dev/tty && {
+      printf '%s
+' "$reply"
+      return 0
+    }
+  fi
+
+  if [ -t 0 ] || [ ! -e /dev/tty ]; then
+    IFS= read -r reply && {
+      printf '%s
+' "$reply"
+      return 0
+    }
+  fi
+
+  printf 'No interactive terminal available; rerun from an interactive iSH session or use --noninteractive.
+' >&2
+  return 1
+}
+
 prompt_yes_no() {
   prompt_text=$1
   default_value=$2
@@ -30,7 +58,7 @@ prompt_yes_no() {
     if [ "${NONINTERACTIVE:-0}" = "1" ]; then
       reply=$default_value
     else
-      read -r reply || return 1
+      reply=$(read_prompt_line) || return 1
     fi
 
     reply=$(printf '%s' "$reply" | tr '[:upper:]' '[:lower:]')
@@ -76,7 +104,7 @@ prompt_choice() {
     if [ "${NONINTERACTIVE:-0}" = "1" ]; then
       reply=$default_value
     else
-      read -r reply || return 1
+      reply=$(read_prompt_line) || return 1
     fi
     [ -n "$reply" ] || reply=$default_value
 
