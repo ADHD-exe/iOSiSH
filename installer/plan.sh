@@ -321,35 +321,33 @@ plan_user_setup() {
 plan_shell_setup() {
     print_section_header "Shell Setup"
     print_help_text "iOSiSH now handles shell installation and configuration directly inside the state-driven installer."
+    print_help_text "To keep the guided path reliable, the installer now applies a stable default shell plan automatically."
 
     run_shell_setup=$(prompt_yes_no "Run shell configuration?" "yes") || return 1
     state_set RUN_SHELL_SETUP "$run_shell_setup"
-    [ "$run_shell_setup" = "yes" ] || return 0
 
-    install_shells=$(prompt_choice "Which shells should be installed?" "all" "zsh" "bash" "fish" "all") || return 1
-    root_shell=$(prompt_choice "Which default shell should root use?" "bash" "bash" "zsh" "fish") || return 1
+    if [ "$run_shell_setup" != "yes" ]; then
+        state_set INSTALL_SHELLS ""
+        state_set ROOT_DEFAULT_SHELL ""
+        state_set USER_DEFAULT_SHELL ""
+        state_set ZSH_PROMPT_CHOICE ""
+        state_set BASH_PROMPT_CHOICE ""
+        state_set FISH_PROMPT_CHOICE ""
+        state_set FETCH_CHOICE ""
+        return 0
+    fi
 
+    install_shells="all"
+    root_shell="bash"
     if [ "${ROOT_ONLY:-no}" = "yes" ]; then
         user_shell="$root_shell"
     else
-        user_shell=$(prompt_choice "Which default shell should ${PRIMARY_USER:-rabbit} use?" "zsh" "zsh" "bash" "fish") || return 1
+        user_shell="zsh"
     fi
-
     zsh_prompt="powerlevel10k"
     bash_prompt="starship"
     fish_prompt="tide"
-
-    case "$install_shells" in
-        zsh|all) zsh_prompt=$(prompt_choice "Choose the Zsh prompt style." "powerlevel10k" "omz" "starship" "powerlevel10k") || return 1 ;;
-    esac
-    case "$install_shells" in
-        bash|all) bash_prompt=$(prompt_choice "Choose the Bash prompt style." "starship" "framework" "starship") || return 1 ;;
-    esac
-    case "$install_shells" in
-        fish|all) fish_prompt=$(prompt_choice "Choose the Fish prompt style." "tide" "tide" "starship") || return 1 ;;
-    esac
-
-    fetch_choice=$(prompt_choice "Install a system info banner tool?" "fastfetch" "fastfetch" "neofetch" "neither") || return 1
+    fetch_choice="fastfetch"
 
     state_set INSTALL_SHELLS "$install_shells"
     state_set ROOT_DEFAULT_SHELL "$root_shell"
@@ -823,13 +821,26 @@ plan_extras_setup() {
     state_set INSTALL_ALIASES "$install_aliases"
 }
 
+run_planning_step() {
+    step_name=$1
+    shift
+    "$@"
+    step_rc=$?
+    if [ "$step_rc" -ne 0 ]; then
+        printf 'Planning failed in section: %s
+' "$step_name" >&2
+        return "$step_rc"
+    fi
+    return 0
+}
+
 run_planning_phase() {
-    plan_installer_preferences || return 1
-    plan_user_setup || return 1
-    plan_shell_setup || return 1
-    plan_package_setup || return 1
-    plan_editor_setup || return 1
-    plan_ssh_setup || return 1
-    plan_privilege_setup || return 1
-    plan_extras_setup || return 1
+    run_planning_step preferences plan_installer_preferences || return 1
+    run_planning_step users plan_user_setup || return 1
+    run_planning_step shells plan_shell_setup || return 1
+    run_planning_step packages plan_package_setup || return 1
+    run_planning_step editor plan_editor_setup || return 1
+    run_planning_step ssh plan_ssh_setup || return 1
+    run_planning_step privilege plan_privilege_setup || return 1
+    run_planning_step extras plan_extras_setup || return 1
 }
