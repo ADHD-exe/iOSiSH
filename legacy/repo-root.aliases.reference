@@ -1,0 +1,25 @@
+# Legacy compatibility/reference alias file.
+#
+# This file is no longer the canonical iOSiSH alias source.
+# Canonical optional alias assets now live under:
+#   aliases/common.sh
+#   aliases/aliases.zsh
+#   aliases/aliases.bash
+#   aliases/common.fish
+#   aliases/aliases.fish
+#
+# iOSiSH no longer installs this file automatically. native shell setup owns shell setup,
+# and iOSiSH can optionally install shell-aware alias files after native shell setup
+# completes.
+#
+# If you manually source this file from zsh or bash during local development,
+# it will try to source the new shared/common and zsh alias layers from the
+# repository checkout rooted at the current working directory.
+
+if [ -r "$(pwd)/aliases/common.sh" ]; then
+    . "$(pwd)/aliases/common.sh"
+fi
+
+if [ -r "$(pwd)/aliases/aliases.zsh" ]; then
+    . "$(pwd)/aliases/aliases.zsh"
+fi
